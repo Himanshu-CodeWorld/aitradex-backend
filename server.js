@@ -16,6 +16,7 @@ const connectDB = require("./src/config/db");
 const authRoutes = require("./src/routes/auth.routes");
 const userRoutes = require("./src/routes/user.routes");
 const uploadRoutes = require("./src/routes/upload.routes");
+const kycRoutes = require("./src/routes/kyc.routes");
 
 // ===============================================
 // App
@@ -34,6 +35,8 @@ app.use(express.static(path.join(__dirname, "public")));
 app.get("/captcha", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "captcha.html"));
 });
+
+
 
 // ===============================================
 // Security & Middleware
@@ -86,6 +89,7 @@ app.get("/", (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/user", userRoutes);
 app.use("/api/upload", uploadRoutes);
+app.use("/api/kyc", kycRoutes);
 
 // ===============================================
 // 404 Route
