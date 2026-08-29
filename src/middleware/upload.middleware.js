@@ -1,48 +1,7 @@
 const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
 
 // ============================================================
-// UPLOAD DIRECTORY
-// ============================================================
-
-const uploadDir = path.join(
-  __dirname,
-  "../../uploads"
-);
-
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, {
-    recursive: true,
-  });
-}
-
-// ============================================================
-// STORAGE
-// ============================================================
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-
-  filename: (req, file, cb) => {
-    const extension = path
-      .extname(file.originalname || "")
-      .toLowerCase();
-
-    const filename =
-      `${file.fieldname || "image"}-` +
-      `${Date.now()}-` +
-      `${Math.round(Math.random() * 1e9)}` +
-      extension;
-
-    cb(null, filename);
-  },
-});
-
-// ============================================================
-// ALLOWED IMAGE TYPES
+// ALLOWED IMAGE MIME TYPES
 // ============================================================
 
 const allowedMimeTypes = new Set([
@@ -53,6 +12,10 @@ const allowedMimeTypes = new Set([
   "image/heic",
   "image/heif",
 ]);
+
+// ============================================================
+// ALLOWED EXTENSIONS
+// ============================================================
 
 const allowedExtensions = new Set([
   ".jpg",
@@ -70,40 +33,54 @@ const allowedExtensions = new Set([
 const fileFilter = (req, file, cb) => {
   console.log("");
   console.log("========================================");
-  console.log("IMAGE UPLOAD");
-  console.log("Original Name :", file.originalname);
-  console.log("MIME Type     :", file.mimetype);
-  console.log("Field Name    :", file.fieldname);
+  console.log("MULTER FILE FILTER");
+  console.log("========================================");
+  console.log("Field Name     :", file.fieldname);
+  console.log("Original Name  :", file.originalname);
+  console.log("MIME Type      :", file.mimetype);
   console.log("========================================");
 
   const mimeType =
     (file.mimetype || "").toLowerCase();
 
-  const extension = path
-    .extname(file.originalname || "")
-    .toLowerCase();
+  const originalName =
+    file.originalname || "";
 
-  // Normal image MIME type.
+  const extension =
+    originalName
+      ? require("path")
+          .extname(originalName)
+          .toLowerCase()
+      : "";
+
+  // ----------------------------------------------------------
+  // Normal image MIME
+  // ----------------------------------------------------------
+
   if (allowedMimeTypes.has(mimeType)) {
     console.log("IMAGE ACCEPTED BY MIME TYPE");
+
     return cb(null, true);
   }
 
-  // Some mobile devices / Flutter upload clients
-  // send application/octet-stream even for images.
-  //
-  // In that situation, use the file extension as
-  // a secondary check.
+  // ----------------------------------------------------------
+  // Mobile fallback
+  // ----------------------------------------------------------
+
   if (
     mimeType === "application/octet-stream" &&
     allowedExtensions.has(extension)
   ) {
     console.log(
-      "IMAGE ACCEPTED BY FILE EXTENSION"
+      "IMAGE ACCEPTED BY EXTENSION"
     );
 
     return cb(null, true);
   }
+
+  // ----------------------------------------------------------
+  // Reject
+  // ----------------------------------------------------------
 
   console.log("IMAGE REJECTED");
   console.log("MIME      :", mimeType);
@@ -118,7 +95,19 @@ const fileFilter = (req, file, cb) => {
 };
 
 // ============================================================
-// MULTER
+// MULTER MEMORY STORAGE
+// ============================================================
+//
+// IMPORTANT:
+// We do NOT save the image to Render's filesystem.
+//
+// The image stays in memory and is directly sent to Cloudinary.
+//
+
+const storage = multer.memoryStorage();
+
+// ============================================================
+// MULTER CONFIGURATION
 // ============================================================
 
 const upload = multer({
@@ -126,7 +115,7 @@ const upload = multer({
   fileFilter,
 
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10 MB
+    fileSize: 10 * 1024 * 1024,
     files: 1,
   },
 });
