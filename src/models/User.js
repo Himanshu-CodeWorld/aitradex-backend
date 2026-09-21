@@ -1,232 +1,41 @@
 const mongoose = require("mongoose");
 
-const UserSchema = new mongoose.Schema(
+const userSchema = new mongoose.Schema(
   {
-    // ==========================================================
-    // AUTHENTICATION
-    // ==========================================================
-
-    fullName: {
+    firebaseUid: {
       type: String,
       required: true,
-      trim: true,
+      unique: true,
+      index: true,
     },
 
     email: {
       type: String,
       required: true,
-      unique: true,
       lowercase: true,
       trim: true,
-      match: /^\S+@\S+\.\S+$/,
     },
 
-    phone: {
-      type: String,
-      required: true,
-      unique: true,
-      trim: true,
-      match: /^\+?[1-9]\d{9,14}$/,
-    },
-
-    countryCode: {
-      type: String,
-      default: "+91",
-    },
-
-    mpin: {
-      type: String,
-      required: true,
-    },
-
-    // ==========================================================
-    // PERSONAL DETAILS
-    // ==========================================================
-
-    gender: {
-      type: String,
-      enum: ["Male", "Female", "Other"],
-      default: "",
-    },
-
-    dob: {
-      type: Date,
-    },
-
-    birthPlace: {
+    fullName: {
       type: String,
       default: "",
       trim: true,
     },
 
-    // ==========================================================
-    // INVESTMENT PROFILE
-    // ==========================================================
-
-    investmentGoal: {
-      type: String,
-      default: "",
-    },
-
-    investmentExperience: {
-      type: String,
-      default: "",
-    },
-
-    occupation: {
-      type: String,
-      default: "",
-    },
-
-    monthlyIncome: {
-      type: String,
-      default: "",
-    },
-
-    companyName: {
+    username: {
       type: String,
       default: "",
       trim: true,
     },
 
-    jobTitle: {
-      type: String,
-      default: "",
-      trim: true,
-    },
-
-    // ==========================================================
-    // KYC
-    // ==========================================================
-
-    panNumber: {
-      type: String,
-      uppercase: true,
-      trim: true,
-      unique: true,
-      sparse: true,
-      default: "",
-    },
-
-    panImageUrl: {
+    profileImageUrl: {
       type: String,
       default: "",
     },
 
-    aadhaarNumber: {
+    provider: {
       type: String,
-      unique: true,
-      sparse: true,
-    },
-
-    aadhaarFrontUrl: {
-      type: String,
-      default: "",
-    },
-
-    aadhaarBackUrl: {
-      type: String,
-      default: "",
-    },
-
-    selfieUrl: {
-      type: String,
-      default: "",
-    },
-
-    signatureUrl: {
-      type: String,
-      default: "",
-    },
-
-    // ==========================================================
-    // ADDRESS
-    // ==========================================================
-
-    address: {
-      type: String,
-      default: "",
-    },
-
-    city: {
-      type: String,
-      default: "",
-    },
-
-    state: {
-      type: String,
-      default: "",
-    },
-
-    pincode: {
-      type: String,
-      default: "",
-    },
-
-    // ==========================================================
-    // BANK
-    // ==========================================================
-
-    bankName: {
-      type: String,
-      default: "",
-    },
-
-    accountHolderName: {
-      type: String,
-      default: "",
-    },
-
-    accountNumber: {
-      type: String,
-      default: "",
-    },
-
-    ifscCode: {
-      type: String,
-      default: "",
-    },
-
-    accountType: {
-      type: String,
-      enum: ["Savings", "Current"],
-      default: "Savings",
-    },
-
-    // ==========================================================
-    // NOMINEE
-    // ==========================================================
-
-    nomineeName: {
-      type: String,
-      default: "",
-    },
-
-    nomineeDob: {
-      type: Date,
-    },
-
-    nomineeRelation: {
-      type: String,
-      default: "",
-    },
-
-    // ==========================================================
-    // PROFILE
-    // ==========================================================
-
-    profileImage: {
-      type: String,
-      default: "",
-    },
-
-    // ==========================================================
-    // ACCOUNT STATUS
-    // ==========================================================
-
-    kycVerified: {
-      type: Boolean,
-      default: false,
+      default: "google",
     },
 
     emailVerified: {
@@ -234,68 +43,22 @@ const UserSchema = new mongoose.Schema(
       default: false,
     },
 
-    phoneVerified: {
-      type: Boolean,
-      default: false,
-    },
-
-    accountStatus: {
-      type: String,
-      enum: ["Pending", "Active", "Rejected", "Blocked"],
-      default: "Pending",
-    },
-
-    // ==========================================================
-    // DEVICE
-    // ==========================================================
-
-    fcmToken: {
-      type: String,
-      default: "",
-    },
-
-    deviceType: {
-      type: String,
-      default: "",
-    },
-
-    // ==========================================================
-    // LOGIN
-    // ==========================================================
-
-    lastLogin: {
+    createdAt: {
       type: Date,
+      default: Date.now,
     },
 
-    // ==========================================================
-    // REFERRAL
-    // ==========================================================
-
-    referralCode: {
-      type: String,
-      default: "",
-    },
-
-    referredBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      default: null,
+    lastLoginAt: {
+      type: Date,
+      default: Date.now,
     },
   },
   {
     timestamps: true,
-    versionKey: false,
   }
 );
 
-// ==========================================================
-// INDEXES
-// ==========================================================
-
-UserSchema.index({ email: 1 });
-UserSchema.index({ phone: 1 });
-UserSchema.index({ panNumber: 1 });
-
-// ==========================================================
-
-module.exports = mongoose.model("User", UserSchema);
+module.exports = mongoose.model(
+  "User",
+  userSchema
+);

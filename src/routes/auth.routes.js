@@ -3,10 +3,20 @@ const router = express.Router();
 
 const authController = require("../controllers/auth.controller");
 const authMiddleware = require("../middleware/auth.middleware");
+const firebaseAuthMiddleware = require("../middleware/firebaseAuth.middleware");
+const {
+  googleAuth,
+} = require("../controllers/googleAuth.controller");
 
 console.log("====================================");
 console.log("Auth Routes Loaded");
 console.log("====================================");
+
+router.post(
+  "/google-sync",
+  firebaseAuthMiddleware,
+  googleAuth
+);
 
 // ==========================================================
 // PHONE OTP ROUTES

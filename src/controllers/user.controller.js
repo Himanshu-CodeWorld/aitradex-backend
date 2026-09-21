@@ -562,8 +562,17 @@ exports.changeMpin = async (req, res) => {
 
 exports.deleteAccount = async (req, res) => {
   try {
+    // req.user is created by authMiddleware
+    const userId = req.user?._id;
 
-    const user = await User.findById(req.user._id);
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required.",
+      });
+    }
+
+    const user = await User.findById(userId);
 
     if (!user) {
       return res.status(404).json({
@@ -572,22 +581,27 @@ exports.deleteAccount = async (req, res) => {
       });
     }
 
-    await User.findByIdAndDelete(user._id);
+    // Permanently delete the MongoDB account
+    await User.findByIdAndDelete(userId);
+
+    console.log(
+      `ACCOUNT DELETED: ${userId}`
+    );
 
     return res.status(200).json({
       success: true,
-      message: "Account deleted successfully.",
+      message: "Account deleted permanently.",
     });
-
   } catch (error) {
-
-    console.error("Delete Account Error:", error);
+    console.error(
+      "Delete Account Error:",
+      error
+    );
 
     return res.status(500).json({
       success: false,
-      message: error.message,
+      message: "Failed to delete account.",
     });
-
   }
 };
 
