@@ -1,188 +1,72 @@
 const User = require("../models/User");
 
-/*
-|--------------------------------------------------------------------------
-| Create or Update Firebase User
-|--------------------------------------------------------------------------
-| This endpoint receives Firebase Authentication user data from Flutter
-| and creates/updates the corresponding MongoDB user document.
-|
-| IMPORTANT:
-| - Firebase remains the authentication system.
-| - MongoDB only stores the user profile/account information.
-| - Never store the Firebase password in MongoDB.
-|--------------------------------------------------------------------------
-*/
-
+// ============================================
+// CREATE OR UPDATE USER
+// ============================================
 const createOrUpdateUser = async (req, res) => {
   try {
     const {
       firebaseUid,
-      displayName,
       email,
-      emailVerified,
+      username,
+      fullName,
       phoneNumber,
-      photoURL,
-      firebaseCreatedAt,
-      firebaseLastSignInAt,
+      profileImage,
     } = req.body;
-
-    // ---------------------------------------------------------------
-    // Validate required fields
-    // ---------------------------------------------------------------
 
     if (!firebaseUid) {
       return res.status(400).json({
         success: false,
-        message: "Firebase UID is required.",
+        message: "Firebase UID is required",
       });
     }
 
-    if (!email) {
-      return res.status(400).json({
-        success: false,
-        message: "Email is required.",
-      });
-    }
+    let user = await User.findOne({ firebaseUid });
 
-    // ---------------------------------------------------------------
-    // Normalize values
-    // ---------------------------------------------------------------
-
-    const normalizedFirebaseUid = String(firebaseUid).trim();
-
-    const normalizedEmail = String(email)
-      .trim()
-      .toLowerCase();
-
-    const normalizedDisplayName = displayName
-      ? String(displayName).trim()
-      : "";
-
-    const normalizedPhoneNumber = phoneNumber
-      ? String(phoneNumber).trim()
-      : "";
-
-    const normalizedPhotoURL = photoURL
-      ? String(photoURL).trim()
-      : "";
-
-    // ---------------------------------------------------------------
-    // Find existing user
-    // ---------------------------------------------------------------
-
-    let user = await User.findOne({
-      firebaseUid: normalizedFirebaseUid,
-    });
-
-    // ---------------------------------------------------------------
-    // Create new MongoDB user
-    // ---------------------------------------------------------------
-
-    if (!user) {
-      user = new User({
-        firebaseUid: normalizedFirebaseUid,
-        displayName: normalizedDisplayName,
-        email: normalizedEmail,
-        emailVerified: Boolean(emailVerified),
-        phoneNumber: normalizedPhoneNumber,
-        photoURL: normalizedPhotoURL,
-        firebaseCreatedAt: firebaseCreatedAt
-          ? new Date(firebaseCreatedAt)
-          : null,
-        firebaseLastSignInAt: firebaseLastSignInAt
-          ? new Date(firebaseLastSignInAt)
-          : null,
-        isActive: true,
-        isBlocked: false,
-      });
+    if (user) {
+      user.email = email ?? user.email;
+      user.username = username ?? user.username;
+      user.fullName = fullName ?? user.fullName;
+      user.phoneNumber = phoneNumber ?? user.phoneNumber;
+      user.profileImage = profileImage ?? user.profileImage;
 
       await user.save();
 
-      return res.status(201).json({
+      return res.status(200).json({
         success: true,
-        message: "Firebase user created in MongoDB successfully.",
+        message: "User updated successfully",
         user,
       });
     }
 
-    // ---------------------------------------------------------------
-    // Update existing MongoDB user
-    // ---------------------------------------------------------------
+    user = await User.create({
+      firebaseUid,
+      email,
+      username,
+      fullName,
+      phoneNumber,
+      profileImage,
+    });
 
-    user.displayName = normalizedDisplayName;
-    user.email = normalizedEmail;
-    user.emailVerified = Boolean(emailVerified);
-    user.phoneNumber = normalizedPhoneNumber;
-    user.photoURL = normalizedPhotoURL;
-
-    if (firebaseCreatedAt) {
-      user.firebaseCreatedAt = new Date(firebaseCreatedAt);
-    }
-
-    if (firebaseLastSignInAt) {
-      user.firebaseLastSignInAt = new Date(firebaseLastSignInAt);
-    }
-
-    await user.save();
-
-    return res.status(200).json({
+    return res.status(201).json({
       success: true,
-      message: "Firebase user updated in MongoDB successfully.",
+      message: "User created successfully",
       user,
     });
   } catch (error) {
     console.error("Create/Update User Error:", error);
 
-    // ---------------------------------------------------------------
-    // MongoDB duplicate key error
-    // ---------------------------------------------------------------
-
-    if (error.code === 11000) {
-      return res.status(409).json({
-        success: false,
-        message: "A user with this Firebase UID or email already exists.",
-        error: error.keyValue,
-      });
-    }
-
-    // ---------------------------------------------------------------
-    // Invalid MongoDB date
-    // ---------------------------------------------------------------
-
-    if (error.name === "ValidationError") {
-      return res.status(400).json({
-        success: false,
-        message: "User validation failed.",
-        errors: Object.values(error.errors).map(
-          (item) => item.message
-        ),
-      });
-    }
-
-    // ---------------------------------------------------------------
-    // Generic server error
-    // ---------------------------------------------------------------
-
     return res.status(500).json({
       success: false,
-      message: "Failed to save Firebase user in MongoDB.",
-      error:
-        process.env.NODE_ENV === "development"
-          ? error.message
-          : undefined,
+      message: "Failed to create or update user",
+      error: error.message,
     });
   }
 };
 
-/*
-|--------------------------------------------------------------------------
-| Get User By Firebase UID
-|--------------------------------------------------------------------------
-| GET /api/users/firebase/:firebaseUid
-|--------------------------------------------------------------------------
-*/
-
+// ============================================
+// GET USER BY FIREBASE UID
+// ============================================
 const getUserByFirebaseUid = async (req, res) => {
   try {
     const { firebaseUid } = req.params;
@@ -190,24 +74,21 @@ const getUserByFirebaseUid = async (req, res) => {
     if (!firebaseUid) {
       return res.status(400).json({
         success: false,
-        message: "Firebase UID is required.",
+        message: "Firebase UID is required",
       });
     }
 
-    const user = await User.findOne({
-      firebaseUid: String(firebaseUid).trim(),
-    });
+    const user = await User.findOne({ firebaseUid });
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: "User not found in MongoDB.",
+        message: "User not found",
       });
     }
 
     return res.status(200).json({
       success: true,
-      message: "User retrieved successfully.",
       user,
     });
   } catch (error) {
@@ -215,16 +96,70 @@ const getUserByFirebaseUid = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Failed to retrieve user.",
-      error:
-        process.env.NODE_ENV === "development"
-          ? error.message
-          : undefined,
+      message: "Failed to get user",
+      error: error.message,
     });
   }
 };
 
+// ============================================
+// DELETE USER
+// DELETE /api/users/delete
+// ============================================
+const deleteUser = async (req, res) => {
+  try {
+    /*
+     * authMiddleware should put the Firebase
+     * authenticated user information into req.user.
+     *
+     * Depending on your middleware, the UID may be
+     * available as uid or firebaseUid.
+     */
+
+    const firebaseUid =
+      req.user?.uid ||
+      req.user?.firebaseUid;
+
+    if (!firebaseUid) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized. Firebase UID not found.",
+      });
+    }
+
+    const user = await User.findOne({ firebaseUid });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    await User.deleteOne({
+      firebaseUid,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "User deleted successfully",
+    });
+  } catch (error) {
+    console.error("Delete User Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to delete user",
+      error: error.message,
+    });
+  }
+};
+
+// ============================================
+// EXPORT CONTROLLERS
+// ============================================
 module.exports = {
   createOrUpdateUser,
   getUserByFirebaseUid,
+  deleteUser,
 };

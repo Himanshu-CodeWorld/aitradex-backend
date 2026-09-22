@@ -2,53 +2,30 @@ const express = require("express");
 
 const router = express.Router();
 
+const authMiddleware = require("../middleware/auth.middleware");
+
 const {
   createOrUpdateUser,
   getUserByFirebaseUid,
   deleteUser,
 } = require("../controllers/user.controller");
 
-/*
-|--------------------------------------------------------------------------
-| User Routes
-|--------------------------------------------------------------------------
-*/
+// ============================================
+// CREATE / UPDATE USER
+// POST /api/users
+// ============================================
+router.post("/", authMiddleware, createOrUpdateUser);
 
-/**
- * Create or update Firebase user in MongoDB
- *
- * POST /api/users
- *
- * Used after Firebase Authentication account creation.
- */
-router.post(
-  "/",
-  createOrUpdateUser
-);
+// ============================================
+// GET USER BY FIREBASE UID
+// GET /api/users/firebase/:firebaseUid
+// ============================================
+router.get("/firebase/:firebaseUid", authMiddleware, getUserByFirebaseUid);
 
-/**
- * Get MongoDB user using Firebase UID
- *
- * GET /api/users/firebase/:firebaseUid
- */
-router.get(
-  "/firebase/:firebaseUid",
-  getUserByFirebaseUid
-);
-
-/**
- * Delete MongoDB user using Firebase UID
- *
- * DELETE /api/users/delete
- *
- * Body:
- * {
- *   "firebaseUid": "firebase-user-uid"
- * }
- */
-router.delete(
-  "/delete",
-  deleteUser
-);
+// ============================================
+// DELETE USER
+// DELETE /api/users/delete
+// ============================================
+router.delete("/delete", authMiddleware, deleteUser);
 
 module.exports = router;
