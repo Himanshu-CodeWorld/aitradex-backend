@@ -1,698 +1,230 @@
 const User = require("../models/User");
-const bcrypt = require("bcryptjs");
 
-// ==========================================================
-// GET PROFILE
-// GET /api/user/profile
-// ==========================================================
+/*
+|--------------------------------------------------------------------------
+| Create or Update Firebase User
+|--------------------------------------------------------------------------
+| This endpoint receives Firebase Authentication user data from Flutter
+| and creates/updates the corresponding MongoDB user document.
+|
+| IMPORTANT:
+| - Firebase remains the authentication system.
+| - MongoDB only stores the user profile/account information.
+| - Never store the Firebase password in MongoDB.
+|--------------------------------------------------------------------------
+*/
 
-exports.getProfile = async (req, res) => {
-  try {
-    const user = await User.findById(req.user._id).select("-mpin");
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found.",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      data: user,
-    });
-  } catch (error) {
-    console.error("Get Profile Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-// ==========================================================
-// UPDATE PROFILE
-// PUT /api/user/profile
-// ==========================================================
-
-exports.updateProfile = async (req, res) => {
+const createOrUpdateUser = async (req, res) => {
   try {
     const {
-      fullName,
-      gender,
-      dob,
-      birthPlace,
-      occupation,
-      monthlyIncome,
-      companyName,
-      jobTitle,
-      investmentGoal,
-      investmentExperience,
-      address,
-      city,
-      state,
-      pincode,
-      profileImage,
+      firebaseUid,
+      displayName,
+      email,
+      emailVerified,
+      phoneNumber,
+      photoURL,
+      firebaseCreatedAt,
+      firebaseLastSignInAt,
     } = req.body;
 
-    const user = await User.findById(req.user._id);
+    // ---------------------------------------------------------------
+    // Validate required fields
+    // ---------------------------------------------------------------
 
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found.",
-      });
-    }
-
-    if (fullName !== undefined) user.fullName = fullName;
-    if (gender !== undefined) user.gender = gender;
-    if (dob !== undefined) user.dob = dob;
-    if (birthPlace !== undefined) user.birthPlace = birthPlace;
-
-    if (occupation !== undefined) user.occupation = occupation;
-    if (monthlyIncome !== undefined)
-      user.monthlyIncome = monthlyIncome;
-    if (companyName !== undefined)
-      user.companyName = companyName;
-    if (jobTitle !== undefined)
-      user.jobTitle = jobTitle;
-
-    if (investmentGoal !== undefined)
-      user.investmentGoal = investmentGoal;
-
-    if (investmentExperience !== undefined)
-      user.investmentExperience =
-        investmentExperience;
-
-    if (address !== undefined) user.address = address;
-    if (city !== undefined) user.city = city;
-    if (state !== undefined) user.state = state;
-    if (pincode !== undefined) user.pincode = pincode;
-
-    if (profileImage !== undefined)
-      user.profileImage = profileImage;
-
-    await user.save();
-
-    return res.status(200).json({
-      success: true,
-      message: "Profile updated successfully.",
-      data: user,
-    });
-  } catch (error) {
-    console.error("Update Profile Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-// ==========================================================
-// UPDATE BANK DETAILS
-// PUT /api/user/bank
-// ==========================================================
-
-exports.updateBankDetails = async (req, res) => {
-  try {
-    const {
-      bankName,
-      accountHolderName,
-      accountNumber,
-      ifscCode,
-      accountType,
-    } = req.body;
-
-    const user = await User.findById(req.user._id);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found.",
-      });
-    }
-
-    if (bankName !== undefined)
-      user.bankName = bankName;
-
-    if (accountHolderName !== undefined)
-      user.accountHolderName =
-        accountHolderName;
-
-    if (accountNumber !== undefined)
-      user.accountNumber = accountNumber;
-
-    if (ifscCode !== undefined)
-      user.ifscCode = ifscCode;
-
-    if (accountType !== undefined)
-      user.accountType = accountType;
-
-    await user.save();
-
-    return res.status(200).json({
-      success: true,
-      message: "Bank details updated successfully.",
-      data: user,
-    });
-  } catch (error) {
-    console.error("Bank Update Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-// ==========================================================
-// UPDATE NOMINEE
-// PUT /api/user/nominee
-// ==========================================================
-
-exports.updateNominee = async (req, res) => {
-  try {
-    const {
-      nomineeName,
-      nomineeDob,
-      nomineeRelation,
-    } = req.body;
-
-    const user = await User.findById(req.user._id);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found.",
-      });
-    }
-
-    if (nomineeName !== undefined)
-      user.nomineeName = nomineeName;
-
-    if (nomineeDob !== undefined)
-      user.nomineeDob = nomineeDob;
-
-    if (nomineeRelation !== undefined)
-      user.nomineeRelation =
-        nomineeRelation;
-
-    await user.save();
-
-    return res.status(200).json({
-      success: true,
-      message: "Nominee updated successfully.",
-      data: user,
-    });
-  } catch (error) {
-    console.error("Nominee Update Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-// ==========================================================
-// UPDATE FCM TOKEN
-// PUT /api/user/fcm-token
-// ==========================================================
-
-exports.updateFcmToken = async (req, res) => {
-  try {
-    const { fcmToken, deviceType } = req.body;
-
-    const user = await User.findById(req.user._id);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found.",
-      });
-    }
-
-    if (fcmToken !== undefined)
-      user.fcmToken = fcmToken;
-
-    if (deviceType !== undefined)
-      user.deviceType = deviceType;
-
-    await user.save();
-
-    return res.status(200).json({
-      success: true,
-      message: "FCM token updated successfully.",
-    });
-  } catch (error) {
-    console.error("FCM Update Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-// ==========================================================
-// UPDATE KYC DETAILS
-// PUT /api/user/kyc
-// ==========================================================
-
-exports.updateKyc = async (req, res) => {
-  try {
-    const {
-      panNumber,
-      aadhaarNumber,
-    } = req.body;
-
-    const user = await User.findById(req.user._id);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found.",
-      });
-    }
-
-    if (panNumber !== undefined)
-      user.panNumber = panNumber.toUpperCase();
-
-    if (aadhaarNumber !== undefined)
-      user.aadhaarNumber = aadhaarNumber;
-
-    await user.save();
-
-    return res.status(200).json({
-      success: true,
-      message: "KYC updated successfully.",
-      data: user,
-    });
-
-  } catch (error) {
-
-    console.error("Update KYC Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-
-  }
-};
-
-// ==========================================================
-// UPLOAD PAN
-// PUT /api/user/upload-pan
-// ==========================================================
-
-exports.uploadPan = async (req, res) => {
-  try {
-
-    const { panImageUrl } = req.body;
-
-    if (!panImageUrl) {
+    if (!firebaseUid) {
       return res.status(400).json({
         success: false,
-        message: "PAN image URL is required.",
+        message: "Firebase UID is required.",
       });
     }
 
-    const user = await User.findById(req.user._id);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found.",
-      });
-    }
-
-    user.panImageUrl = panImageUrl;
-
-    await user.save();
-
-    return res.status(200).json({
-      success: true,
-      message: "PAN uploaded successfully.",
-      imageUrl: user.panImageUrl,
-    });
-
-  } catch (error) {
-
-    console.error("PAN Upload Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-
-  }
-};
-
-// ==========================================================
-// UPLOAD AADHAAR
-// PUT /api/user/upload-aadhaar
-// ==========================================================
-
-exports.uploadAadhaar = async (req, res) => {
-  try {
-
-    const {
-      aadhaarFrontUrl,
-      aadhaarBackUrl,
-    } = req.body;
-
-    const user = await User.findById(req.user._id);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found.",
-      });
-    }
-
-    if (aadhaarFrontUrl)
-      user.aadhaarFrontUrl = aadhaarFrontUrl;
-
-    if (aadhaarBackUrl)
-      user.aadhaarBackUrl = aadhaarBackUrl;
-
-    await user.save();
-
-    return res.status(200).json({
-      success: true,
-      message: "Aadhaar uploaded successfully.",
-      frontImage: user.aadhaarFrontUrl,
-      backImage: user.aadhaarBackUrl,
-    });
-
-  } catch (error) {
-
-    console.error("Aadhaar Upload Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-
-  }
-};
-
-// ==========================================================
-// UPLOAD SELFIE
-// PUT /api/user/upload-selfie
-// ==========================================================
-
-exports.uploadSelfie = async (req, res) => {
-  try {
-
-    const { selfieUrl } = req.body;
-
-    if (!selfieUrl) {
+    if (!email) {
       return res.status(400).json({
         success: false,
-        message: "Selfie URL is required.",
+        message: "Email is required.",
       });
     }
 
-    const user = await User.findById(req.user._id);
+    // ---------------------------------------------------------------
+    // Normalize values
+    // ---------------------------------------------------------------
+
+    const normalizedFirebaseUid = String(firebaseUid).trim();
+
+    const normalizedEmail = String(email)
+      .trim()
+      .toLowerCase();
+
+    const normalizedDisplayName = displayName
+      ? String(displayName).trim()
+      : "";
+
+    const normalizedPhoneNumber = phoneNumber
+      ? String(phoneNumber).trim()
+      : "";
+
+    const normalizedPhotoURL = photoURL
+      ? String(photoURL).trim()
+      : "";
+
+    // ---------------------------------------------------------------
+    // Find existing user
+    // ---------------------------------------------------------------
+
+    let user = await User.findOne({
+      firebaseUid: normalizedFirebaseUid,
+    });
+
+    // ---------------------------------------------------------------
+    // Create new MongoDB user
+    // ---------------------------------------------------------------
 
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found.",
+      user = new User({
+        firebaseUid: normalizedFirebaseUid,
+        displayName: normalizedDisplayName,
+        email: normalizedEmail,
+        emailVerified: Boolean(emailVerified),
+        phoneNumber: normalizedPhoneNumber,
+        photoURL: normalizedPhotoURL,
+        firebaseCreatedAt: firebaseCreatedAt
+          ? new Date(firebaseCreatedAt)
+          : null,
+        firebaseLastSignInAt: firebaseLastSignInAt
+          ? new Date(firebaseLastSignInAt)
+          : null,
+        isActive: true,
+        isBlocked: false,
+      });
+
+      await user.save();
+
+      return res.status(201).json({
+        success: true,
+        message: "Firebase user created in MongoDB successfully.",
+        user,
       });
     }
 
-    user.selfieUrl = selfieUrl;
+    // ---------------------------------------------------------------
+    // Update existing MongoDB user
+    // ---------------------------------------------------------------
+
+    user.displayName = normalizedDisplayName;
+    user.email = normalizedEmail;
+    user.emailVerified = Boolean(emailVerified);
+    user.phoneNumber = normalizedPhoneNumber;
+    user.photoURL = normalizedPhotoURL;
+
+    if (firebaseCreatedAt) {
+      user.firebaseCreatedAt = new Date(firebaseCreatedAt);
+    }
+
+    if (firebaseLastSignInAt) {
+      user.firebaseLastSignInAt = new Date(firebaseLastSignInAt);
+    }
 
     await user.save();
 
     return res.status(200).json({
       success: true,
-      message: "Selfie uploaded successfully.",
-      imageUrl: user.selfieUrl,
+      message: "Firebase user updated in MongoDB successfully.",
+      user,
     });
-
   } catch (error) {
+    console.error("Create/Update User Error:", error);
 
-    console.error("Selfie Upload Error:", error);
+    // ---------------------------------------------------------------
+    // MongoDB duplicate key error
+    // ---------------------------------------------------------------
 
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "A user with this Firebase UID or email already exists.",
+        error: error.keyValue,
+      });
+    }
 
-  }
-};
+    // ---------------------------------------------------------------
+    // Invalid MongoDB date
+    // ---------------------------------------------------------------
 
-// ==========================================================
-// UPLOAD SIGNATURE
-// PUT /api/user/upload-signature
-// ==========================================================
-
-exports.uploadSignature = async (req, res) => {
-  try {
-
-    const { signatureUrl } = req.body;
-
-    if (!signatureUrl) {
+    if (error.name === "ValidationError") {
       return res.status(400).json({
         success: false,
-        message: "Signature URL is required.",
+        message: "User validation failed.",
+        errors: Object.values(error.errors).map(
+          (item) => item.message
+        ),
       });
     }
 
-    const user = await User.findById(req.user._id);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found.",
-      });
-    }
-
-    user.signatureUrl = signatureUrl;
-
-    await user.save();
-
-    return res.status(200).json({
-      success: true,
-      message: "Signature uploaded successfully.",
-      imageUrl: user.signatureUrl,
-    });
-
-  } catch (error) {
-
-    console.error("Signature Upload Error:", error);
+    // ---------------------------------------------------------------
+    // Generic server error
+    // ---------------------------------------------------------------
 
     return res.status(500).json({
       success: false,
-      message: error.message,
+      message: "Failed to save Firebase user in MongoDB.",
+      error:
+        process.env.NODE_ENV === "development"
+          ? error.message
+          : undefined,
     });
-
   }
 };
 
+/*
+|--------------------------------------------------------------------------
+| Get User By Firebase UID
+|--------------------------------------------------------------------------
+| GET /api/users/firebase/:firebaseUid
+|--------------------------------------------------------------------------
+*/
 
-// ==========================================================
-// CHANGE MPIN
-// PUT /api/user/change-mpin
-// ==========================================================
-
-exports.changeMpin = async (req, res) => {
+const getUserByFirebaseUid = async (req, res) => {
   try {
-    const { currentMpin, newMpin } = req.body;
+    const { firebaseUid } = req.params;
 
-    if (!currentMpin || !newMpin) {
+    if (!firebaseUid) {
       return res.status(400).json({
         success: false,
-        message: "Current MPIN and New MPIN are required.",
+        message: "Firebase UID is required.",
       });
     }
 
-    const user = await User.findById(req.user._id);
+    const user = await User.findOne({
+      firebaseUid: String(firebaseUid).trim(),
+    });
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: "User not found.",
+        message: "User not found in MongoDB.",
       });
     }
-
-    const isMatch = await bcrypt.compare(
-      currentMpin,
-      user.mpin
-    );
-
-    if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        message: "Current MPIN is incorrect.",
-      });
-    }
-
-    user.mpin = await bcrypt.hash(newMpin, 10);
-
-    await user.save();
 
     return res.status(200).json({
       success: true,
-      message: "MPIN changed successfully.",
+      message: "User retrieved successfully.",
+      user,
     });
-
   } catch (error) {
-
-    console.error("Change MPIN Error:", error);
+    console.error("Get User Error:", error);
 
     return res.status(500).json({
       success: false,
-      message: error.message,
-    });
-
-  }
-};
-
-// ==========================================================
-// DELETE ACCOUNT
-// DELETE /api/user/delete
-// ==========================================================
-
-exports.deleteAccount = async (req, res) => {
-  try {
-    // req.user is created by authMiddleware
-    const userId = req.user?._id;
-
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        message: "Authentication required.",
-      });
-    }
-
-    const user = await User.findById(userId);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found.",
-      });
-    }
-
-    // Permanently delete the MongoDB account
-    await User.findByIdAndDelete(userId);
-
-    console.log(
-      `ACCOUNT DELETED: ${userId}`
-    );
-
-    return res.status(200).json({
-      success: true,
-      message: "Account deleted permanently.",
-    });
-  } catch (error) {
-    console.error(
-      "Delete Account Error:",
-      error
-    );
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to delete account.",
+      message: "Failed to retrieve user.",
+      error:
+        process.env.NODE_ENV === "development"
+          ? error.message
+          : undefined,
     });
   }
 };
 
-// ==========================================================
-// DASHBOARD
-// GET /api/user/dashboard
-// ==========================================================
-
-exports.getDashboard = async (req, res) => {
-  try {
-
-    const user = await User.findById(req.user._id).select("-mpin");
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found.",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      data: {
-        profile: user,
-
-        completion: {
-          personal:
-            !!user.fullName &&
-            !!user.gender &&
-            !!user.dob,
-
-          kyc:
-            !!user.panNumber &&
-            !!user.aadhaarNumber,
-
-          bank:
-            !!user.bankName &&
-            !!user.accountNumber,
-
-          nominee:
-            !!user.nomineeName,
-
-          verified: user.kycVerified,
-        },
-      },
-    });
-
-  } catch (error) {
-
-    console.error("Dashboard Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-
-  }
-};
-
-// ==========================================================
-// ACCOUNT STATUS
-// GET /api/user/account-status
-// ==========================================================
-
-exports.getAccountStatus = async (req, res) => {
-  try {
-
-    const user = await User.findById(req.user._id).select(
-      "accountStatus emailVerified phoneVerified kycVerified"
-    );
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found.",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      data: user,
-    });
-
-  } catch (error) {
-
-    console.error("Account Status Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-
-  }
+module.exports = {
+  createOrUpdateUser,
+  getUserByFirebaseUid,
 };
