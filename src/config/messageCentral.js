@@ -2,13 +2,27 @@
 
 const axios = require("axios");
 
+// ==========================================================
+// MESSAGE CENTRAL CONFIGURATION
+// ==========================================================
+
+const MESSAGE_CENTRAL_BASE_URL =
+  "https://cpaas.messagecentral.com";
+
+// ==========================================================
+// AXIOS CLIENT
+// ==========================================================
+
 const messageCentral = axios.create({
-  baseURL: "https://cpaas.messagecentral.com",
+  baseURL: MESSAGE_CENTRAL_BASE_URL,
   timeout: 30000,
   headers: {
-    "Content-Type": "application/json",
     Accept: "application/json",
   },
 });
+
+// ==========================================================
+// EXPORT
+// ==========================================================
 
 module.exports = messageCentral;
