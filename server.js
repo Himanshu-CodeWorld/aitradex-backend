@@ -11,12 +11,16 @@ const connectDB = require("./src/config/db");
 const authRoutes = require("./src/routes/auth.routes");
 const userRoutes = require("./src/routes/user.routes");
 
+// ==========================================================
+// APP INITIALIZATION
+// ==========================================================
+
 const app = express();
 
 const PORT = process.env.PORT || 10000;
 
 // ==========================================================
-// MIDDLEWARE
+// SECURITY / CORS
 // ==========================================================
 
 app.use(
@@ -28,7 +32,15 @@ app.use(
 
 app.use(helmet());
 
+// ==========================================================
+// LOGGING
+// ==========================================================
+
 app.use(morgan("dev"));
+
+// ==========================================================
+// BODY PARSERS
+// ==========================================================
 
 app.use(express.json());
 
@@ -38,6 +50,10 @@ app.use(
   })
 );
 
+// ==========================================================
+// COOKIE PARSER
+// ==========================================================
+
 app.use(cookieParser());
 
 // ==========================================================
@@ -45,11 +61,10 @@ app.use(cookieParser());
 // ==========================================================
 
 app.get("/", (req, res) => {
-  res.status(200).json({
+  return res.status(200).json({
     success: true,
     message: "AiTradeX Backend API is running",
-    environment:
-      process.env.NODE_ENV || "development",
+    environment: process.env.NODE_ENV || "development",
   });
 });
 
@@ -62,19 +77,23 @@ console.log("========================================");
 console.log("📦 Loading API Routes");
 console.log("========================================");
 
-// Authentication
-app.use(
-  "/api/auth",
-  authRoutes
-);
+// ----------------------------------------------------------
+// AUTH ROUTES
+// Base URL:
+// /api/auth
+// ----------------------------------------------------------
+
+app.use("/api/auth", authRoutes);
 
 console.log("✅ Auth Routes Loaded");
 
-// Users
-app.use(
-  "/api/users",
-  userRoutes
-);
+// ----------------------------------------------------------
+// USER ROUTES
+// Base URL:
+// /api/users
+// ----------------------------------------------------------
+
+app.use("/api/users", userRoutes);
 
 console.log("✅ User Routes Loaded");
 
@@ -93,6 +112,7 @@ app.use((req, res) => {
   console.log("METHOD :", req.method);
   console.log("URL    :", req.originalUrl);
   console.log("========================================");
+  console.log("");
 
   return res.status(404).json({
     success: false,
@@ -106,31 +126,21 @@ app.use((req, res) => {
 // GLOBAL ERROR HANDLER
 // ==========================================================
 
-app.use(
-  (
-    error,
-    req,
-    res,
-    next
-  ) => {
-    console.error("");
-    console.error("========================================");
-    console.error("❌ GLOBAL SERVER ERROR");
-    console.error("========================================");
-    console.error("Message:", error.message);
-    console.error("Stack:", error.stack);
-    console.error("========================================");
+app.use((error, req, res, next) => {
+  console.error("");
+  console.error("========================================");
+  console.error("❌ GLOBAL SERVER ERROR");
+  console.error("========================================");
+  console.error("Message:", error.message);
+  console.error("Stack:", error.stack);
+  console.error("========================================");
+  console.error("");
 
-    return res.status(
-      error.status || 500
-    ).json({
-      success: false,
-      message:
-        error.message ||
-        "Internal server error.",
-    });
-  }
-);
+  return res.status(error.status || 500).json({
+    success: false,
+    message: error.message || "Internal server error.",
+  });
+});
 
 // ==========================================================
 // START SERVER
@@ -138,40 +148,49 @@ app.use(
 
 const startServer = async () => {
   try {
+    // ------------------------------------------------------
+    // Connect MongoDB
+    // ------------------------------------------------------
+
     await connectDB();
 
     console.log("");
     console.log("========================================");
     console.log("🚀 AiTradeX Backend Started");
+    console.log("========================================");
+    console.log(`🌐 Server      : http://localhost:${PORT}`);
     console.log(
-      `🌐 Server: http://localhost:${PORT}`
-    );
-    console.log(
-      `📦 Environment: ${
-        process.env.NODE_ENV ||
-        "development"
+      `📦 Environment : ${
+        process.env.NODE_ENV || "development"
       }`
     );
     console.log("========================================");
     console.log("");
 
-    app.listen(
-      PORT,
-      "0.0.0.0",
-      () => {
-        console.log(
-          `🚀 Server listening on port ${PORT}`
-        );
-      }
-    );
+    // ------------------------------------------------------
+    // Start Express Server
+    // ------------------------------------------------------
+
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(
+        `🚀 Server listening on port ${PORT}`
+      );
+    });
   } catch (error) {
-    console.error(
-      "❌ Server startup failed:",
-      error
-    );
+    console.error("");
+    console.error("========================================");
+    console.error("❌ SERVER STARTUP FAILED");
+    console.error("========================================");
+    console.error(error);
+    console.error("========================================");
+    console.error("");
 
     process.exit(1);
   }
 };
+
+// ==========================================================
+// START APPLICATION
+// ==========================================================
 
 startServer();

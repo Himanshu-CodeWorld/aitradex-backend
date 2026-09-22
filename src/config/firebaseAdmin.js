@@ -1,69 +1,39 @@
-// src/config/firebaseAdmin.js
+const admin = require("firebase-admin");
 
-const {
-  initializeApp,
-  getApps,
-  cert,
-} = require("firebase-admin/app");
+if (!admin.apps.length) {
+  try {
+    const serviceAccount = {
+      type: process.env.FIREBASE_TYPE,
+      project_id: process.env.FIREBASE_PROJECT_ID,
+      private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
+      private_key: process.env.FIREBASE_PRIVATE_KEY
+        ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n")
+        : undefined,
+      client_email: process.env.FIREBASE_CLIENT_EMAIL,
+      client_id: process.env.FIREBASE_CLIENT_ID,
+      auth_uri: process.env.FIREBASE_AUTH_URI,
+      token_uri: process.env.FIREBASE_TOKEN_URI,
+      auth_provider_x509_cert_url:
+        process.env.FIREBASE_AUTH_PROVIDER_X509_CERT_URL,
+      client_x509_cert_url:
+        process.env.FIREBASE_CLIENT_X509_CERT_URL,
+    };
 
-const { getAuth } = require("firebase-admin/auth");
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
 
-// ============================================
-// Firebase Admin Configuration
-// ============================================
-
-const projectId = process.env.FIREBASE_PROJECT_ID;
-const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-const privateKey = process.env.FIREBASE_PRIVATE_KEY;
-
-// ============================================
-// Validate Environment Variables
-// ============================================
-
-if (!projectId) {
-  throw new Error("❌ FIREBASE_PROJECT_ID is missing");
+    console.log("");
+    console.log("====================================");
+    console.log("🔥 Firebase Admin Initialized");
+    console.log("📦 Project:", process.env.FIREBASE_PROJECT_ID);
+    console.log("====================================");
+    console.log("");
+  } catch (error) {
+    console.error("❌ Firebase Admin initialization failed:");
+    console.error(error);
+    throw error;
+  }
 }
 
-if (!clientEmail) {
-  throw new Error("❌ FIREBASE_CLIENT_EMAIL is missing");
-}
-
-if (!privateKey) {
-  throw new Error("❌ FIREBASE_PRIVATE_KEY is missing");
-}
-
-// ============================================
-// Initialize Firebase Admin
-// ============================================
-
-let firebaseApp;
-
-if (getApps().length === 0) {
-  firebaseApp = initializeApp({
-    credential: cert({
-      projectId: projectId,
-      clientEmail: clientEmail,
-      privateKey: privateKey.replace(/\\n/g, "\n"),
-    }),
-  });
-
-  console.log("====================================");
-  console.log("🔥 Firebase Admin Initialized");
-  console.log("📦 Project:", projectId);
-  console.log("====================================");
-} else {
-  firebaseApp = getApps()[0];
-
-  console.log("🔥 Firebase Admin already initialized");
-}
-
-// ============================================
-// Firebase Authentication
-// ============================================
-
-const firebaseAuth = getAuth(firebaseApp);
-
-module.exports = {
-  firebaseApp,
-  firebaseAuth,
-};
+module.exports = admin;
