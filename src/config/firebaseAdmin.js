@@ -1,29 +1,69 @@
 // src/config/firebaseAdmin.js
 
-const admin = require("firebase-admin");
+const {
+  initializeApp,
+  getApps,
+  cert,
+} = require("firebase-admin/app");
 
-// Initialize Firebase Admin only once
-if (admin.apps.length === 0) {
-  const projectId = process.env.FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+const { getAuth } = require("firebase-admin/auth");
 
-  if (!projectId || !clientEmail || !privateKey) {
-    throw new Error(
-      "❌ Firebase Admin environment variables are missing. " +
-      "Required: FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY"
-    );
-  }
+// ============================================
+// Firebase Admin Configuration
+// ============================================
 
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId,
-      clientEmail,
+const projectId = process.env.FIREBASE_PROJECT_ID;
+const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+
+// ============================================
+// Validate Environment Variables
+// ============================================
+
+if (!projectId) {
+  throw new Error("❌ FIREBASE_PROJECT_ID is missing");
+}
+
+if (!clientEmail) {
+  throw new Error("❌ FIREBASE_CLIENT_EMAIL is missing");
+}
+
+if (!privateKey) {
+  throw new Error("❌ FIREBASE_PRIVATE_KEY is missing");
+}
+
+// ============================================
+// Initialize Firebase Admin
+// ============================================
+
+let firebaseApp;
+
+if (getApps().length === 0) {
+  firebaseApp = initializeApp({
+    credential: cert({
+      projectId: projectId,
+      clientEmail: clientEmail,
       privateKey: privateKey.replace(/\\n/g, "\n"),
     }),
   });
 
-  console.log("🔥 Firebase Admin initialized successfully");
+  console.log("====================================");
+  console.log("🔥 Firebase Admin Initialized");
+  console.log("📦 Project:", projectId);
+  console.log("====================================");
+} else {
+  firebaseApp = getApps()[0];
+
+  console.log("🔥 Firebase Admin already initialized");
 }
 
-module.exports = admin;
+// ============================================
+// Firebase Authentication
+// ============================================
+
+const firebaseAuth = getAuth(firebaseApp);
+
+module.exports = {
+  firebaseApp,
+  firebaseAuth,
+};
