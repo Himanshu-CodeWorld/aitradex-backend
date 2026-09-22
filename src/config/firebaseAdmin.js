@@ -1,99 +1,117 @@
-const admin = require("firebase-admin");
+require("dotenv").config();
+
+const {
+  initializeApp,
+  getApps,
+  getApp,
+  cert,
+} = require("firebase-admin/app");
+
+// ==========================================================
+// FIREBASE ADMIN CONFIGURATION
+// ==========================================================
+
+const projectId = process.env.FIREBASE_PROJECT_ID;
+
+const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+
+const privateKey = process.env.FIREBASE_PRIVATE_KEY
+  ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n")
+  : null;
+
+// ==========================================================
+// VALIDATE ENVIRONMENT VARIABLES
+// ==========================================================
+
+const missingVariables = [];
+
+if (!projectId) {
+  missingVariables.push("FIREBASE_PROJECT_ID");
+}
+
+if (!clientEmail) {
+  missingVariables.push("FIREBASE_CLIENT_EMAIL");
+}
+
+if (!privateKey) {
+  missingVariables.push("FIREBASE_PRIVATE_KEY");
+}
+
+if (missingVariables.length > 0) {
+  console.error("");
+  console.error("========================================");
+  console.error("❌ FIREBASE CONFIGURATION ERROR");
+  console.error("========================================");
+  console.error(
+    "Missing variables:",
+    missingVariables.join(", ")
+  );
+  console.error("========================================");
+  console.error("");
+
+  throw new Error(
+    `Missing Firebase environment variables: ${missingVariables.join(
+      ", "
+    )}`
+  );
+}
 
 // ==========================================================
 // FIREBASE ADMIN INITIALIZATION
 // ==========================================================
 
-let firebaseAdmin;
+let firebaseApp;
 
-// ==========================================================
-// CHECK IF FIREBASE ADMIN IS ALREADY INITIALIZED
-// ==========================================================
+try {
+  // --------------------------------------------------------
+  // Reuse existing Firebase Admin app
+  // --------------------------------------------------------
 
-if (admin.apps && admin.apps.length > 0) {
-  firebaseAdmin = admin.app();
+  if (getApps().length > 0) {
+    firebaseApp = getApp();
 
-  console.log("");
-  console.log("========================================");
-  console.log("🔥 Firebase Admin Already Initialized");
-  console.log("========================================");
-} else {
-  try {
-    // --------------------------------------------------------
-    // Firebase service account configuration
-    // --------------------------------------------------------
-
-    const serviceAccount = {
-      type: process.env.FIREBASE_TYPE,
-      project_id: process.env.FIREBASE_PROJECT_ID,
-      private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
-      private_key: process.env.FIREBASE_PRIVATE_KEY
-        ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n")
-        : undefined,
-      client_email: process.env.FIREBASE_CLIENT_EMAIL,
-      client_id: process.env.FIREBASE_CLIENT_ID,
-      auth_uri: process.env.FIREBASE_AUTH_URI,
-      token_uri: process.env.FIREBASE_TOKEN_URI,
-      auth_provider_x509_cert_url:
-        process.env.FIREBASE_AUTH_PROVIDER_X509_CERT_URL,
-      client_x509_cert_url:
-        process.env.FIREBASE_CLIENT_X509_CERT_URL,
-    };
-
-    // --------------------------------------------------------
-    // Validate required Firebase configuration
-    // --------------------------------------------------------
-
-    const requiredVariables = [
-      ["FIREBASE_PROJECT_ID", serviceAccount.project_id],
-      ["FIREBASE_CLIENT_EMAIL", serviceAccount.client_email],
-      ["FIREBASE_PRIVATE_KEY", serviceAccount.private_key],
-    ];
-
-    const missingVariables = requiredVariables
-      .filter(([, value]) => !value)
-      .map(([name]) => name);
-
-    if (missingVariables.length > 0) {
-      throw new Error(
-        `Missing Firebase environment variables: ${missingVariables.join(
-          ", "
-        )}`
-      );
-    }
-
-    // --------------------------------------------------------
+    console.log("");
+    console.log("========================================");
+    console.log("🔥 Firebase Admin Already Initialized");
+    console.log("========================================");
+    console.log("📦 Project:", projectId);
+    console.log("========================================");
+    console.log("");
+  } else {
+    // ------------------------------------------------------
     // Initialize Firebase Admin
-    // --------------------------------------------------------
+    // ------------------------------------------------------
 
-    firebaseAdmin = admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
+    firebaseApp = initializeApp({
+      credential: cert({
+        projectId,
+        clientEmail,
+        privateKey,
+      }),
     });
 
     console.log("");
     console.log("========================================");
     console.log("🔥 Firebase Admin Initialized");
     console.log("========================================");
-    console.log(
-      `📦 Project: ${process.env.FIREBASE_PROJECT_ID}`
-    );
+    console.log("📦 Project:", projectId);
     console.log("========================================");
     console.log("");
-  } catch (error) {
-    console.error("");
-    console.error("========================================");
-    console.error("❌ Firebase Admin Initialization Failed");
-    console.error("========================================");
-    console.error("Message:", error.message);
-    console.error("========================================");
-    console.error("");
-
-    throw error;
   }
+} catch (error) {
+  console.error("");
+  console.error("========================================");
+  console.error("❌ FIREBASE ADMIN INITIALIZATION FAILED");
+  console.error("========================================");
+  console.error("Message:", error.message);
+  console.error("========================================");
+  console.error("");
+
+  throw error;
 }
 
 // ==========================================================
 // EXPORT FIREBASE ADMIN APP
 // ==========================================================
 
-module.exports = firebaseAdmin;
+module.exports = firebaseApp;

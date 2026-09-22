@@ -1,20 +1,10 @@
-const admin = require("../config/firebaseAdmin");
+const { getAuth } = require("firebase-admin/auth");
+
+const firebaseApp = require("../config/firebaseAdmin");
 
 /**
  * ==========================================================
  * AiTradeX Firebase Authentication Middleware
- * ==========================================================
- *
- * Flutter:
- *
- * Authorization: Bearer <Firebase ID Token>
- *
- * Backend:
- *
- * admin.auth().verifyIdToken(idToken)
- *
- * Firebase ID tokens must NOT be verified using
- * jsonwebtoken.verify().
  * ==========================================================
  */
 
@@ -41,7 +31,7 @@ const authMiddleware = async (req, res, next) => {
     }
 
     // ========================================================
-    // CHECK BEARER TOKEN
+    // CHECK BEARER FORMAT
     // ========================================================
 
     if (!authorization.startsWith("Bearer ")) {
@@ -74,14 +64,16 @@ const authMiddleware = async (req, res, next) => {
     // VERIFY FIREBASE ID TOKEN
     // ========================================================
 
-    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const decodedToken = await getAuth(
+      firebaseApp
+    ).verifyIdToken(idToken);
 
     // ========================================================
     // VALIDATE TOKEN
     // ========================================================
 
     if (!decodedToken) {
-      console.log("❌ Firebase token could not be decoded");
+      console.log("❌ Firebase token verification returned empty");
 
       return res.status(401).json({
         success: false,
@@ -90,25 +82,25 @@ const authMiddleware = async (req, res, next) => {
     }
 
     if (!decodedToken.uid) {
-      console.log("❌ Firebase UID missing");
+      console.log("❌ Firebase UID missing from token");
 
       return res.status(401).json({
         success: false,
-        message: "Firebase UID is missing from authentication token.",
+        message: "Firebase UID is missing.",
       });
     }
 
     // ========================================================
-    // ATTACH FIREBASE USER TO REQUEST
+    // ATTACH USER TO REQUEST
     // ========================================================
 
     req.user = decodedToken;
 
     // ========================================================
-    // SUCCESS
+    // SUCCESS LOG
     // ========================================================
 
-    console.log("✅ Firebase token verified successfully");
+    console.log("✅ Firebase token verified");
     console.log("Firebase UID:", decodedToken.uid);
     console.log("Email:", decodedToken.email || "N/A");
     console.log(
@@ -133,10 +125,6 @@ const authMiddleware = async (req, res, next) => {
     console.error("========================================");
     console.error("");
 
-    // ========================================================
-    // EXPIRED TOKEN
-    // ========================================================
-
     if (error.code === "auth/id-token-expired") {
       return res.status(401).json({
         success: false,
@@ -145,10 +133,6 @@ const authMiddleware = async (req, res, next) => {
       });
     }
 
-    // ========================================================
-    // REVOKED TOKEN
-    // ========================================================
-
     if (error.code === "auth/id-token-revoked") {
       return res.status(401).json({
         success: false,
@@ -156,10 +140,6 @@ const authMiddleware = async (req, res, next) => {
         code: "TOKEN_REVOKED",
       });
     }
-
-    // ========================================================
-    // INVALID TOKEN
-    // ========================================================
 
     if (
       error.code === "auth/argument-error" ||
@@ -171,10 +151,6 @@ const authMiddleware = async (req, res, next) => {
         code: "INVALID_TOKEN",
       });
     }
-
-    // ========================================================
-    // DEFAULT ERROR
-    // ========================================================
 
     return res.status(401).json({
       success: false,
