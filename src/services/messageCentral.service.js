@@ -1,418 +1,322 @@
 const axios = require("axios");
 
-// ==========================================================
-// Message Central Client
-// ==========================================================
+const BASE_URL =
+  process.env.MESSAGE_CENTRAL_BASE_URL ||
+  "https://cpaas.messagecentral.com";
 
-const messageCentral = axios.create({
-  baseURL: "https://cpaas.messagecentral.com",
-  timeout: 30000,
-  headers: {
-    Accept: "*/*",
-  },
-});
+const CUSTOMER_ID =
+  process.env.MESSAGE_CENTRAL_CUSTOMER_ID;
 
-// ==========================================================
-// Helper
-// ==========================================================
+const EMAIL =
+  process.env.MESSAGE_CENTRAL_EMAIL;
 
-const getProviderErrorMessage = (error) => {
-  const data = error?.response?.data;
+const PASSWORD =
+  process.env.MESSAGE_CENTRAL_PASSWORD;
 
-  return (
-    data?.message ||
-    data?.errorMessage ||
-    data?.error ||
-    data?.data?.message ||
-    data?.data?.errorMessage ||
-    error?.message ||
-    "Message Central request failed."
-  );
-};
+const COUNTRY =
+  process.env.MESSAGE_CENTRAL_COUNTRY || "91";
 
-// ==========================================================
-// Generate Message Central Auth Token
-// ==========================================================
+let authToken = null;
+let authTokenExpiresAt = 0;
 
+// ============================================================
+// GENERATE MESSAGE CENTRAL AUTH TOKEN
+// ============================================================
 const generateAuthToken = async () => {
   try {
-    const customerId =
-      process.env.MESSAGE_CENTRAL_CUSTOMER_ID;
-
-    const email =
-      process.env.MESSAGE_CENTRAL_EMAIL;
-
-    const password =
-      process.env.MESSAGE_CENTRAL_PASSWORD;
-
-    const country =
-      process.env.MESSAGE_CENTRAL_COUNTRY || "91";
-
-    if (!customerId) {
+    if (!CUSTOMER_ID) {
       throw new Error(
-        "MESSAGE_CENTRAL_CUSTOMER_ID is missing."
+        "MESSAGE_CENTRAL_CUSTOMER_ID is missing"
       );
     }
 
-    if (!email) {
+    if (!EMAIL) {
       throw new Error(
-        "MESSAGE_CENTRAL_EMAIL is missing."
+        "MESSAGE_CENTRAL_EMAIL is missing"
       );
     }
 
-    if (!password) {
+    if (!PASSWORD) {
       throw new Error(
-        "MESSAGE_CENTRAL_PASSWORD is missing."
+        "MESSAGE_CENTRAL_PASSWORD is missing"
       );
     }
 
-    // Message Central requires Base64 encoded password.
-    const base64Key = Buffer
-      .from(password, "utf8")
-      .toString("base64");
+    // Message Central requires Base64 encoded password
+    const encodedPassword =
+      Buffer.from(PASSWORD, "utf8").toString("base64");
 
-    console.log("");
-    console.log("====================================");
+    console.log("\n====================================");
     console.log("MESSAGE CENTRAL AUTH REQUEST");
-    console.log("Customer :", customerId);
-    console.log("Email    :", email);
-    console.log("Country  :", country);
-    console.log("Password : ********");
-    console.log("Key      : ********");
+    console.log("Customer :", CUSTOMER_ID);
+    console.log("Email    :", EMAIL);
+    console.log("Country  :", COUNTRY);
     console.log("====================================");
 
-    const response = await messageCentral.get(
-      "/auth/v1/authentication/token",
+    const response = await axios.get(
+      `${BASE_URL}/auth/v1/authentication/token`,
       {
         params: {
-          customerId,
-          key: base64Key,
+          customerId: CUSTOMER_ID,
+          key: encodedPassword,
           scope: "NEW",
-          country,
-          email,
+          country: COUNTRY,
+          email: EMAIL,
         },
+
+        headers: {
+          accept: "*/*",
+        },
+
+        timeout: 15000,
       }
     );
 
-    console.log("");
-    console.log("====================================");
-    console.log("MESSAGE CENTRAL AUTH RESPONSE");
     console.log(
-      JSON.stringify(response.data, null, 2)
+      "\n===================================="
     );
-    console.log("====================================");
 
-    const authToken =
-      response.data?.token ||
-      response.data?.authToken ||
-      response.data?.data?.token ||
-      response.data?.data?.authToken;
+    console.log(
+      "MESSAGE CENTRAL AUTH RESPONSE"
+    );
 
-    if (!authToken) {
-      const providerMessage =
+    // Do NOT print password or encoded key
+    console.log({
+      status: response.data?.status,
+      hasToken: Boolean(response.data?.token),
+    });
+
+    console.log(
+      "===================================="
+    );
+
+    if (!response.data?.token) {
+      throw new Error(
         response.data?.error ||
-        response.data?.message ||
-        "Auth token not found.";
-
-      throw new Error(providerMessage);
+        "Auth token not found in Message Central response."
+      );
     }
 
-    console.log(
-      "✅ Message Central auth token generated successfully."
-    );
+    authToken = response.data.token;
+
+    // Token is commonly valid for a limited period.
+    // Refresh conservatively after 23 hours.
+    authTokenExpiresAt =
+      Date.now() + 23 * 60 * 60 * 1000;
 
     return authToken;
   } catch (error) {
-    console.error("");
-    console.error("====================================");
-    console.error("MESSAGE CENTRAL AUTH ERROR");
-    console.error("====================================");
+    const responseData =
+      error.response?.data;
 
-    if (error.response) {
-      console.error(
-        "Status:",
-        error.response.status
-      );
-
-      console.error(
-        "Response:",
-        JSON.stringify(
-          error.response.data,
-          null,
-          2
-        )
-      );
-    } else {
-      console.error(
-        "Message:",
-        error.message
-      );
-    }
-
-    console.error("====================================");
-
-    const providerMessage =
-      getProviderErrorMessage(error);
-
-    const authError = new Error(
-      providerMessage
+    console.error(
+      "\n===================================="
     );
 
-    authError.status =
-      error.response?.status || 500;
+    console.error(
+      "MESSAGE CENTRAL AUTH ERROR"
+    );
 
-    authError.response =
-      error.response;
+    console.error(
+      responseData || error.message
+    );
 
-    throw authError;
+    console.error(
+      "===================================="
+    );
+
+    authToken = null;
+    authTokenExpiresAt = 0;
+
+    throw new Error(
+      responseData?.error ||
+      responseData?.message ||
+      "Message Central authentication failed."
+    );
   }
 };
 
-// ==========================================================
-// Send OTP
-// ==========================================================
+// ============================================================
+// GET AUTH TOKEN
+// ============================================================
+const getAuthToken = async () => {
+  if (
+    authToken &&
+    Date.now() < authTokenExpiresAt
+  ) {
+    return authToken;
+  }
 
-const sendOtp = async (phone) => {
+  return await generateAuthToken();
+};
+
+// ============================================================
+// SEND OTP
+// ============================================================
+const sendOtp = async (
+  mobileNumber,
+  otpLength = 6
+) => {
   try {
-    if (!phone) {
-      throw new Error(
-        "Phone number is required."
-      );
-    }
+    const token = await getAuthToken();
 
-    const authToken =
-      await generateAuthToken();
+    const cleanNumber =
+      String(mobileNumber)
+        .replace(/\D/g, "")
+        .replace(/^91/, "");
 
-    const mobile = String(phone)
-      .replace("+91", "")
-      .replace(/\D/g, "")
-      .trim();
-
-    if (!/^[6-9]\d{9}$/.test(mobile)) {
-      throw new Error(
-        "Invalid Indian mobile number."
-      );
-    }
-
-    const customerId =
-      process.env.MESSAGE_CENTRAL_CUSTOMER_ID;
-
-    const countryCode =
-      process.env.MESSAGE_CENTRAL_COUNTRY ||
-      "91";
-
-    console.log("");
-    console.log("====================================");
+    console.log("\n====================================");
     console.log("MESSAGE CENTRAL SEND OTP");
-    console.log("Mobile       :", mobile);
-    console.log("Country Code :", countryCode);
-    console.log("Customer     :", customerId);
+    console.log("Country :", COUNTRY);
+    console.log("Mobile  :", cleanNumber);
     console.log("====================================");
 
-    const response =
-      await messageCentral.post(
-        "/verification/v3/send",
-        null,
-        {
-          headers: {
-            authToken,
-            Accept: "*/*",
-          },
-          params: {
-            customerId,
-            countryCode,
-            flowType: "SMS",
-            mobileNumber: mobile,
-            otpLength: 6,
-          },
-        }
-      );
+    const response = await axios.post(
+      `${BASE_URL}/verification/v3/send`,
+      null,
+      {
+        params: {
+          countryCode: COUNTRY,
+          customerId: CUSTOMER_ID,
+          mobileNumber: cleanNumber,
+          flowType: "SMS",
+          otpLength,
+        },
 
-    console.log("");
-    console.log("====================================");
-    console.log("MESSAGE CENTRAL SEND OTP RESPONSE");
-    console.log("Status:", response.status);
-    console.log(
-      JSON.stringify(
-        response.data,
-        null,
-        2
-      )
+        headers: {
+          authToken: token,
+          accept: "*/*",
+        },
+
+        timeout: 15000,
+      }
     );
-    console.log("====================================");
+
+    console.log(
+      "\n===================================="
+    );
+
+    console.log(
+      "MESSAGE CENTRAL SEND RESPONSE"
+    );
+
+    console.log({
+      responseCode:
+        response.data?.responseCode,
+      message:
+        response.data?.message,
+      verificationId:
+        response.data?.data?.verificationId,
+    });
+
+    console.log(
+      "===================================="
+    );
+
+    if (
+      response.data?.responseCode !== 200
+    ) {
+      throw new Error(
+        response.data?.message ||
+        response.data?.data?.errorMessage ||
+        "Failed to send OTP."
+      );
+    }
 
     return response.data;
   } catch (error) {
-    console.error("");
     console.error(
-      "========== MESSAGE CENTRAL SEND OTP ERROR =========="
+      "\n========== MESSAGE CENTRAL SEND OTP ERROR =========="
     );
 
-    if (error.response) {
-      console.error(
-        "Status:",
-        error.response.status
-      );
+    console.error(
+      error.response?.data ||
+      error.message
+    );
 
-      console.error(
-        "Data:",
-        JSON.stringify(
-          error.response.data,
-          null,
-          2
-        )
-      );
-    } else {
-      console.error(
-        "Message:",
-        error.message
-      );
+    // If token expired/invalid, clear it.
+    const status =
+      error.response?.status;
+
+    if (
+      status === 401 ||
+      status === 403
+    ) {
+      authToken = null;
+      authTokenExpiresAt = 0;
     }
 
-    const sendError =
-      new Error(
-        getProviderErrorMessage(error)
-      );
-
-    sendError.status =
-      error.response?.status || 500;
-
-    sendError.response =
-      error.response;
-
-    throw sendError;
+    throw new Error(
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Failed to send OTP."
+    );
   }
 };
 
-// ==========================================================
-// Verify OTP
-// ==========================================================
-
+// ============================================================
+// VERIFY OTP
+// ============================================================
 const verifyOtp = async (
   verificationId,
-  otp
+  code
 ) => {
   try {
-    if (!verificationId) {
-      throw new Error(
-        "Verification ID is required."
-      );
-    }
+    const token = await getAuthToken();
 
-    if (!otp) {
-      throw new Error(
-        "OTP is required."
-      );
-    }
+    const response = await axios.get(
+      `${BASE_URL}/verification/v3/validateOtp`,
+      {
+        params: {
+          verificationId,
+          code,
+        },
 
-    const authToken =
-      await generateAuthToken();
+        headers: {
+          authToken: token,
+          accept: "*/*",
+        },
 
-    const customerId =
-      process.env.MESSAGE_CENTRAL_CUSTOMER_ID;
-
-    console.log("");
-    console.log("====================================");
-    console.log("MESSAGE CENTRAL VERIFY OTP");
-    console.log(
-      "Verification ID:",
-      verificationId
+        timeout: 15000,
+      }
     );
+
     console.log(
-      "OTP:",
-      "******"
+      "\n===================================="
     );
-    console.log("====================================");
 
-    const response =
-      await messageCentral.get(
-        "/verification/v3/validateOtp",
-        {
-          headers: {
-            authToken,
-            Accept: "*/*",
-          },
-          params: {
-            customerId,
-            verificationId:
-              String(verificationId),
-            code: String(otp),
-            flowType: "SMS",
-            langid: "en",
-          },
-          validateStatus: () => true,
-        }
-      );
-
-    console.log("");
-    console.log("====================================");
     console.log(
       "MESSAGE CENTRAL VERIFY RESPONSE"
     );
-    console.log(
-      "Status:",
-      response.status
-    );
-    console.log(
-      JSON.stringify(
-        response.data,
-        null,
-        2
-      )
-    );
-    console.log("====================================");
 
-    if (response.status >= 200 &&
-        response.status < 300) {
-      return response.data;
-    }
+    console.log(
+      response.data
+    );
 
-    const errorMessage =
-      response.data?.message ||
-      response.data?.errorMessage ||
-      response.data?.error ||
-      `Message Central returned HTTP ${response.status}.`;
+    console.log(
+      "===================================="
+    );
+
+    return response.data;
+  } catch (error) {
+    console.error(
+      "MESSAGE CENTRAL VERIFY ERROR:",
+      error.response?.data ||
+        error.message
+    );
 
     throw new Error(
-      errorMessage
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      "OTP verification failed."
     );
-  } catch (error) {
-    console.error("");
-    console.error(
-      "========== MESSAGE CENTRAL VERIFY OTP ERROR =========="
-    );
-
-    if (error.response) {
-      console.error(
-        "Status:",
-        error.response.status
-      );
-
-      console.error(
-        "Data:",
-        JSON.stringify(
-          error.response.data,
-          null,
-          2
-        )
-      );
-    } else {
-      console.error(
-        "Message:",
-        error.message
-      );
-    }
-
-    throw error;
   }
 };
 
-// ==========================================================
-// Exports
-// ==========================================================
-
 module.exports = {
   generateAuthToken,
+  getAuthToken,
   sendOtp,
   verifyOtp,
 };
