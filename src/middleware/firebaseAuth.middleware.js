@@ -1,49 +1,41 @@
+// src/middleware/firebaseAuth.middleware.js
+
 const admin = require("../config/firebaseAdmin");
 
-const firebaseAuthMiddleware = async (
-  req,
-  res,
-  next
-) => {
+const firebaseAuthMiddleware = async (req, res, next) => {
   try {
-    const authorization =
-      req.headers.authorization || "";
+    const authHeader = req.headers.authorization;
 
-    if (!authorization.startsWith("Bearer ")) {
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return res.status(401).json({
         success: false,
-        message: "Authorization token is required.",
+        message: "Authorization token is required",
       });
     }
 
-    const idToken =
-      authorization.substring(7);
+    const token = authHeader.substring(7);
 
-    if (!idToken) {
+    if (!token) {
       return res.status(401).json({
         success: false,
-        message: "Firebase ID token is missing.",
+        message: "Firebase token is missing",
       });
     }
 
-    const decodedToken =
-      await admin.auth().verifyIdToken(idToken);
+    const decodedToken = await admin.auth().verifyIdToken(token);
 
     req.firebaseUser = decodedToken;
+    req.userId = decodedToken.uid;
 
     next();
   } catch (error) {
-    console.error(
-      "Firebase token verification error:",
-      error
-    );
+    console.error("❌ Firebase Auth Error:", error.message);
 
     return res.status(401).json({
       success: false,
-      message: "Invalid or expired Firebase token.",
+      message: "Invalid or expired Firebase authentication token",
     });
   }
 };
 
-module.exports =
-  firebaseAuthMiddleware;
+module.exports = firebaseAuthMiddleware;
