@@ -1,560 +1,1306 @@
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
-
 const User = require("../models/User");
 
-const otpService = require("../services/phoneOtpService");
-const { verifyTurnstile } = require("../services/turnstile.service");
-
 // ==========================================================
-// Generate JWT Token
+// Normalize Phone Number
 // ==========================================================
 
-const generateToken = (userId) => {
-  return jwt.sign(
-    { id: userId },
-    process.env.JWT_SECRET,
-    {
-      expiresIn: process.env.JWT_EXPIRES_IN || "30d",
-    }
-  );
+const normalizePhoneNumber = (phone) => {
+  if (phone === undefined || phone === null) {
+    return "";
+  }
+
+  let normalized = String(phone).trim();
+
+  normalized = normalized.replace(/[\s\-()]/g, "");
+
+  if (normalized.startsWith("0091")) {
+    normalized = `+${normalized.substring(2)}`;
+  }
+
+  if (
+    normalized.startsWith("91") &&
+    normalized.length === 12
+  ) {
+    normalized = `+${normalized}`;
+  }
+
+  if (
+    normalized.length === 10 &&
+    /^[6-9]\d{9}$/.test(normalized)
+  ) {
+    normalized = `+91${normalized}`;
+  }
+
+  return normalized;
 };
 
 // ==========================================================
-// SIGNUP
-// POST /api/auth/signup
+// Validate Indian Phone Number
 // ==========================================================
 
-exports.signup = async (req, res) => {
-  console.log("====================================");
-  console.log("SIGNUP REQUEST RECEIVED");
-  console.log(JSON.stringify(req.body, null, 2));
-  console.log("====================================");
+const isValidIndianPhoneNumber = (phone) => {
+  return /^\+91[6-9]\d{9}$/.test(phone);
+};
+
+// ==========================================================
+// Parse Firebase Date
+// ==========================================================
+
+const parseFirebaseDate = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date;
+};
+
+// ==========================================================
+// CREATE / UPDATE FIREBASE USER
+//
+// POST /api/users
+//
+// This endpoint receives Firebase Authentication user
+// information from Flutter and mirrors it into MongoDB.
+//
+// IMPORTANT:
+// Firebase password is NEVER stored in MongoDB.
+// ==========================================================
+
+exports.createOrUpdateUser = async (req, res) => {
+  console.log("");
+  console.log("========================================");
+  console.log("CREATE / UPDATE FIREBASE USER");
+  console.log("========================================");
+
   try {
     const {
-      fullName,
+      firebaseUid,
+      displayName,
       email,
-      phone,
-      countryCode,
-      mpin,
-
-      gender,
-      dob,
-      birthPlace,
-
-      investmentGoal,
-      investmentExperience,
-
-      occupation,
-      monthlyIncome,
-      companyName,
-      jobTitle,
-
-      panNumber,
-      panImageUrl,
-
-      aadhaarNumber,
-      aadhaarFrontUrl,
-      aadhaarBackUrl,
-
-      selfieUrl,
-      signatureUrl,
-
-      address,
-      city,
-      state,
-      pincode,
-
-      bankName,
-      accountHolderName,
-      accountNumber,
-      ifscCode,
-      accountType,
-
-      nomineeName,
-      nomineeDob,
-      nomineeRelation,
+      emailVerified,
+      phoneNumber,
+      photoURL,
+      firebaseCreatedAt,
+      firebaseLastSignInAt,
     } = req.body;
 
-    // =============================
-    // Required Fields
-    // =============================
+    // ======================================================
+    // Required Firebase UID
+    // ======================================================
 
-    if (!fullName || !email || !phone) {
+    if (
+      !firebaseUid ||
+      String(firebaseUid).trim() === ""
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Full Name, Email and Phone are required.",
+        message: "Firebase UID is required.",
       });
     }
 
-    // =============================
-    // Email Exists
-    // =============================
+    // ======================================================
+    // Required Email
+    // ======================================================
 
-    const emailExists = await User.findOne({ email });
-
-    if (emailExists) {
-      return res.status(409).json({
-        success: false,
-        message: "Email already registered.",
-      });
-    }
-
-    // =============================
-    // Phone Exists
-    // =============================
-
-    const phoneExists = await User.findOne({ phone });
-
-    if (phoneExists) {
-      return res.status(409).json({
-        success: false,
-        message: "Phone number already registered.",
-      });
-    }
-
-    // =============================
-    // Hash MPIN
-    // =============================
-
-    let hashedMpin = "";
-
-    if (mpin && mpin.trim() !== "") {
-      hashedMpin = await bcrypt.hash(mpin, 10);
-    }
-
-    // =============================
-    // Create User
-    // =============================
-
-    const userData = {
-      fullName: fullName?.trim(),
-      email: email?.trim().toLowerCase(),
-      phone: phone?.trim(),
-      countryCode,
-
-      mpin: hashedMpin,
-
-      gender,
-      dob,
-      birthPlace,
-
-      investmentGoal,
-      investmentExperience,
-
-      occupation,
-      monthlyIncome,
-      companyName,
-      jobTitle,
-
-      panNumber,
-      panImageUrl,
-
-      aadhaarNumber,
-      aadhaarFrontUrl,
-      aadhaarBackUrl,
-
-      selfieUrl,
-      signatureUrl,
-
-      address,
-      city,
-      state,
-      pincode,
-
-      bankName,
-      accountHolderName,
-      accountNumber,
-      ifscCode,
-      accountType,
-
-      nomineeName,
-      nomineeDob,
-      nomineeRelation,
-    };
-
-    console.log("========== CREATING USER ==========");
-    console.log(JSON.stringify(userData, null, 2));
-
-    let user;
-
-    try {
-      user = await User.create(userData);
-
-      console.log("========== USER CREATED ==========");
-      console.log(user._id.toString());
-    } catch (err) {
-      console.error("========== USER CREATE FAILED ==========");
-      console.error(err);
-
-      return res.status(500).json({
-        success: false,
-        message: err.message,
-      });
-    }
-
-    // =============================
-    // JWT
-    // =============================
-
-    const token = generateToken(user._id);
-
-    // Hide MPIN
-    user.mpin = undefined;
-
-    return res.status(201).json({
-      success: true,
-      message: "Signup successful.",
-      token,
-      user,
-    });
-
-  } catch (error) {
-
-    console.error("========== SIGNUP ERROR ==========");
-    console.error(error);
-
-    if (error.name === "ValidationError") {
-      console.error("Validation Errors:");
-      console.error(error.errors);
-    }
-
-    if (error.code === 11000) {
-      console.error("Duplicate Key:", error.keyValue);
-    }
-
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      error: process.env.NODE_ENV === "development" ? error : undefined,
-    });
-
-  }
-};
-
-exports.sendPhoneOtp = async (req, res) => {
-  try {
-    let { phone, purpose = "signup" } = req.body;
-
-    // Validate phone
-    if (!phone || typeof phone !== "string") {
+    if (
+      !email ||
+      String(email).trim() === ""
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Phone number is required.",
+        message: "Email is required.",
       });
     }
 
-    phone = phone.trim();
+    // ======================================================
+    // Normalize Data
+    // ======================================================
 
-    if (phone.length < 10) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid phone number.",
-      });
-    }
+    const normalizedFirebaseUid =
+      String(firebaseUid).trim();
 
-    console.log("================================");
-    console.log("SEND PHONE OTP");
-    console.log("Phone   :", phone);
-    console.log("Purpose :", purpose);
+    const normalizedEmail =
+      String(email)
+        .trim()
+        .toLowerCase();
 
-    const result = await otpService.sendPhoneOtp(phone, purpose);
+    const normalizedDisplayName =
+      displayName
+        ? String(displayName).trim()
+        : "";
 
-    const response = {
-      success: true,
-      message: "OTP sent successfully.",
-      expiresAt: result.expiresAt,
-    };
+    const normalizedPhoneNumber =
+      phoneNumber
+        ? normalizePhoneNumber(phoneNumber)
+        : "";
 
-    // Return OTP only in development
-    if (process.env.NODE_ENV === "development") {
-      response.otp = result.otp;
-    }
+    const normalizedPhotoURL =
+      photoURL
+        ? String(photoURL).trim()
+        : "";
 
-    return res.status(200).json(response);
+    // ======================================================
+    // Log Request
+    // ======================================================
 
-  } catch (error) {
-    console.error("========== SEND PHONE OTP ERROR ==========");
-    console.error(error);
-
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Failed to send OTP.",
-    });
-  }
-};
-
-exports.verifyPhoneOtp = async (req, res) => {
-  try {
-    console.log("========== VERIFY PHONE OTP ==========");
-    console.log(req.body);
-
-    const { phone, otp } = req.body;
-
-    console.log("Phone:", phone);
-    console.log("OTP:", otp);
-
-    if (!phone || !otp) {
-      return res.status(400).json({
-        success: false,
-        message: "Phone number and OTP are required.",
-      });
-    }
-
-    const result = await otpService.verifyPhoneOtp(
-      phone,
-      otp
+    console.log(
+      "Firebase UID:",
+      normalizedFirebaseUid
     );
 
-    const user = await User.findOne({
-      phone: phone.trim(),
+    console.log(
+      "Email:",
+      normalizedEmail
+    );
+
+    console.log(
+      "Display Name:",
+      normalizedDisplayName
+    );
+
+    console.log(
+      "Phone:",
+      normalizedPhoneNumber || "Not provided"
+    );
+
+    console.log(
+      "Email Verified:",
+      Boolean(emailVerified)
+    );
+
+    // ======================================================
+    // Find Existing Firebase User
+    // ======================================================
+
+    let user = await User.findOne({
+      firebaseUid: normalizedFirebaseUid,
     });
 
-    if (user) {
+    // ======================================================
+    // CREATE NEW USER
+    // ======================================================
 
-      // Existing user
-      const token = generateToken(user._id);
+    if (!user) {
+      console.log(
+        "User not found in MongoDB."
+      );
 
-      user.lastLogin = new Date();
+      console.log(
+        "Creating new Firebase user..."
+      );
+
+      // ----------------------------------------------------
+      // Check duplicate email
+      // ----------------------------------------------------
+
+      const emailUser =
+        await User.findOne({
+          email: normalizedEmail,
+        });
+
+      if (emailUser) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "This email is already associated with another Firebase user.",
+        });
+      }
+
+      // ----------------------------------------------------
+      // Create MongoDB user
+      // ----------------------------------------------------
+
+      user = new User({
+        firebaseUid:
+          normalizedFirebaseUid,
+
+        displayName:
+          normalizedDisplayName,
+
+        email:
+          normalizedEmail,
+
+        emailVerified:
+          Boolean(emailVerified),
+
+        phoneNumber:
+          normalizedPhoneNumber,
+
+        photoURL:
+          normalizedPhotoURL,
+
+        firebaseCreatedAt:
+          parseFirebaseDate(
+            firebaseCreatedAt
+          ),
+
+        firebaseLastSignInAt:
+          parseFirebaseDate(
+            firebaseLastSignInAt
+          ),
+
+        isActive: true,
+
+        isBlocked: false,
+      });
+
       await user.save();
 
-      user.mpin = undefined;
+      console.log(
+        "========================================"
+      );
 
-      return res.status(200).json({
+      console.log(
+        "FIREBASE USER CREATED IN MONGODB"
+      );
+
+      console.log(
+        "MongoDB ID:",
+        user._id.toString()
+      );
+
+      console.log(
+        "Firebase UID:",
+        user.firebaseUid
+      );
+
+      console.log(
+        "========================================"
+      );
+
+      return res.status(201).json({
         success: true,
-        message: "Login successful.",
-        userExists: true,
-        token,
+        message:
+          "Firebase user created in MongoDB successfully.",
         user,
       });
-
     }
 
-    // New user
+    // ======================================================
+    // BLOCKED USER CHECK
+    // ======================================================
+
+    if (user.isBlocked === true) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "This account has been blocked.",
+      });
+    }
+
+    // ======================================================
+    // UPDATE EXISTING USER
+    // ======================================================
+
+    console.log(
+      "User found in MongoDB."
+    );
+
+    console.log(
+      "Updating Firebase user information..."
+    );
+
+    user.displayName =
+      normalizedDisplayName;
+
+    user.email =
+      normalizedEmail;
+
+    user.emailVerified =
+      Boolean(emailVerified);
+
+    user.phoneNumber =
+      normalizedPhoneNumber;
+
+    user.photoURL =
+      normalizedPhotoURL;
+
+    if (firebaseCreatedAt) {
+      const createdAt =
+        parseFirebaseDate(
+          firebaseCreatedAt
+        );
+
+      if (createdAt) {
+        user.firebaseCreatedAt =
+          createdAt;
+      }
+    }
+
+    if (firebaseLastSignInAt) {
+      const lastSignInAt =
+        parseFirebaseDate(
+          firebaseLastSignInAt
+        );
+
+      if (lastSignInAt) {
+        user.firebaseLastSignInAt =
+          lastSignInAt;
+      }
+    }
+
+    await user.save();
+
+    console.log(
+      "========================================"
+    );
+
+    console.log(
+      "FIREBASE USER UPDATED IN MONGODB"
+    );
+
+    console.log(
+      "MongoDB ID:",
+      user._id.toString()
+    );
+
+    console.log(
+      "Firebase UID:",
+      user.firebaseUid
+    );
+
+    console.log(
+      "========================================"
+    );
+
     return res.status(200).json({
       success: true,
-      message: "OTP verified successfully.",
-      userExists: false,
+      message:
+        "Firebase user updated in MongoDB successfully.",
+      user,
     });
-
   } catch (error) {
-    console.error(error);
+    console.error("");
+    console.error(
+      "========================================"
+    );
+
+    console.error(
+      "CREATE / UPDATE FIREBASE USER ERROR"
+    );
+
+    console.error(
+      "========================================"
+    );
+
+    console.error(
+      "Message:",
+      error.message
+    );
+
+    console.error(
+      "Stack:",
+      error.stack
+    );
+
+    // ======================================================
+    // Duplicate Key
+    // ======================================================
+
+    if (error.code === 11000) {
+      console.error(
+        "Duplicate Key:",
+        error.keyValue
+      );
+
+      return res.status(409).json({
+        success: false,
+        message:
+          "A Firebase user with this UID or email already exists.",
+        error:
+          process.env.NODE_ENV ===
+          "development"
+            ? error.keyValue
+            : undefined,
+      });
+    }
+
+    // ======================================================
+    // Validation Error
+    // ======================================================
+
+    if (
+      error.name ===
+      "ValidationError"
+    ) {
+      const validationErrors =
+        Object.values(
+          error.errors
+        ).map(
+          (item) => item.message
+        );
+
+      return res.status(400).json({
+        success: false,
+        message:
+          "User validation failed.",
+        errors:
+          validationErrors,
+      });
+    }
+
+    // ======================================================
+    // Server Error
+    // ======================================================
 
     return res.status(500).json({
       success: false,
-      message: error.message,
+      message:
+        "Failed to save Firebase user in MongoDB.",
+      error:
+        process.env.NODE_ENV ===
+        "development"
+          ? error.message
+          : undefined,
     });
   }
 };
 
-exports.resendPhoneOtp = async (req, res) => {
-  try {
-    const { phone } = req.body;
+// ==========================================================
+// GET USER BY FIREBASE UID
+//
+// GET /api/users/firebase/:firebaseUid
+// ==========================================================
 
-    if (!phone) {
+exports.getUserByFirebaseUid = async (
+  req,
+  res
+) => {
+  console.log("");
+  console.log(
+    "========================================"
+  );
+  console.log(
+    "GET USER BY FIREBASE UID"
+  );
+  console.log(
+    "========================================"
+  );
+
+  try {
+    const {
+      firebaseUid,
+    } = req.params;
+
+    // ======================================================
+    // Validate UID
+    // ======================================================
+
+    if (
+      !firebaseUid ||
+      String(firebaseUid).trim() === ""
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Phone number is required.",
+        message:
+          "Firebase UID is required.",
       });
     }
 
-    const result = await otpService.sendPhoneOtp(phone);
+    const normalizedFirebaseUid =
+      String(firebaseUid).trim();
+
+    console.log(
+      "Firebase UID:",
+      normalizedFirebaseUid
+    );
+
+    // ======================================================
+    // Find User
+    // ======================================================
+
+    const user =
+      await User.findOne({
+        firebaseUid:
+          normalizedFirebaseUid,
+      });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message:
+          "User not found in MongoDB.",
+      });
+    }
+
+    // ======================================================
+    // Blocked User
+    // ======================================================
+
+    if (user.isBlocked === true) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "This account has been blocked.",
+      });
+    }
+
+    // ======================================================
+    // Response
+    // ======================================================
 
     return res.status(200).json({
       success: true,
-      message: "OTP resent successfully.",
-      data: result,
+      message:
+        "User retrieved successfully.",
+      user,
     });
-
   } catch (error) {
-    console.error(error);
+    console.error(
+      "GET USER ERROR:",
+      error
+    );
 
     return res.status(500).json({
       success: false,
-      message: error.message,
+      message:
+        "Failed to retrieve user.",
+      error:
+        process.env.NODE_ENV ===
+        "development"
+          ? error.message
+          : undefined,
     });
   }
 };
 
-exports.checkEmail = async (req, res) => {
-  try {
-    const { email } = req.body;
+// ==========================================================
+// DELETE USER FROM MONGODB
+//
+// DELETE /api/users/delete
+//
+// This removes the MongoDB mirror.
+// Firebase Authentication deletion should be performed
+// separately using Firebase Authentication / Firebase Admin.
+// ==========================================================
 
-    if (!email) {
+exports.deleteUser = async (
+  req,
+  res
+) => {
+  console.log("");
+  console.log(
+    "========================================"
+  );
+  console.log(
+    "DELETE FIREBASE USER MIRROR"
+  );
+  console.log(
+    "========================================"
+  );
+
+  try {
+    let firebaseUid =
+      req.body?.firebaseUid;
+
+    // ------------------------------------------------------
+    // Also support Firebase UID from params
+    // ------------------------------------------------------
+
+    if (
+      !firebaseUid &&
+      req.params?.firebaseUid
+    ) {
+      firebaseUid =
+        req.params.firebaseUid;
+    }
+
+    if (
+      !firebaseUid ||
+      String(firebaseUid).trim() === ""
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Email is required",
+        message:
+          "Firebase UID is required.",
       });
     }
 
-    const user = await User.findOne({
-      email: email.trim().toLowerCase(),
+    firebaseUid =
+      String(firebaseUid).trim();
+
+    console.log(
+      "Firebase UID:",
+      firebaseUid
+    );
+
+    // ======================================================
+    // Find User
+    // ======================================================
+
+    const user =
+      await User.findOne({
+        firebaseUid,
+      });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message:
+          "User not found in MongoDB.",
+      });
+    }
+
+    // ======================================================
+    // Delete User
+    // ======================================================
+
+    await User.deleteOne({
+      _id: user._id,
     });
+
+    console.log(
+      "MongoDB user deleted successfully."
+    );
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "User deleted from MongoDB successfully.",
+    });
+  } catch (error) {
+    console.error(
+      "DELETE USER ERROR:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        "Failed to delete user from MongoDB.",
+      error:
+        process.env.NODE_ENV ===
+        "development"
+          ? error.message
+          : undefined,
+    });
+  }
+};
+
+// ==========================================================
+// CHECK EMAIL
+//
+// POST /api/auth/check-email
+// ==========================================================
+
+exports.checkEmail = async (
+  req,
+  res
+) => {
+  try {
+    const {
+      email,
+    } = req.body;
+
+    if (
+      !email ||
+      String(email).trim() === ""
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Email is required.",
+      });
+    }
+
+    const normalizedEmail =
+      String(email)
+        .trim()
+        .toLowerCase();
+
+    const user =
+      await User.findOne({
+        email: normalizedEmail,
+      });
 
     return res.status(200).json({
       success: true,
       exists: !!user,
     });
   } catch (error) {
-    console.error("CHECK EMAIL ERROR:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Server Error",
-    });
-  }
-};
-
-exports.verifyTurnstile = async (req, res) => {
-  try {
-    const { email, token } = req.body;
-
-    if (!email || !token) {
-      return res.status(400).json({
-        success: false,
-        message: "Email and token are required.",
-      });
-    }
-
-    const result = await verifyTurnstile(token);
-
-    if (!result.success) {
-      return res.status(400).json({
-        success: false,
-        message: "Captcha verification failed.",
-      });
-    }
-
-    return res.json({
-      success: true,
-      message: "Captcha verified successfully.",
-    });
-  } catch (error) {
-    console.error(error);
-
-    res.status(500).json({
-      success: false,
-      message: "Internal server error.",
-    });
-  }
-};
-// ==========================================================
-// LOGIN
-// POST /api/auth/login
-// ==========================================================
-
-exports.login = async (req, res) => {
-
-  try {
-
-    const { email, mpin } = req.body;
-
-    if (!email || !mpin) {
-
-      return res.status(400).json({
-        success: false,
-        message: "Email and MPIN are required.",
-      });
-
-    }
-
-    const user = await User.findOne({ email });
-
-    if (!user) {
-
-      return res.status(404).json({
-        success: false,
-        message: "User not found.",
-      });
-
-    }
-
-    const isMatch = await bcrypt.compare(
-      mpin,
-      user.mpin
+    console.error(
+      "CHECK EMAIL ERROR:",
+      error
     );
 
-    if (!isMatch) {
-
-      return res.status(401).json({
-        success: false,
-        message: "Invalid MPIN.",
-      });
-
-    }
-
-    user.lastLogin = new Date();
-
-    await user.save();
-
-    const token = generateToken(user._id);
-
-    user.mpin = undefined;
-
-    return res.status(200).json({
-
-      success: true,
-      message: "Login successful.",
-      token,
-      user,
-
-    });
-
-  } catch (error) {
-
-    console.error(error);
-
     return res.status(500).json({
-
       success: false,
-      message: error.message,
-
+      message:
+        "Failed to check email.",
     });
-
   }
-
 };
 
 // ==========================================================
-// PROFILE
-// GET /api/auth/profile
+// SEND PHONE OTP
+//
+// POST /api/auth/send-phone-otp
 // ==========================================================
 
-exports.getProfile = async (req, res) => {
+exports.sendPhoneOtp = async (
+  req,
+  res
+) => {
+  console.log("");
+  console.log(
+    "========================================"
+  );
+  console.log(
+    "SEND PHONE OTP REQUEST"
+  );
+  console.log(
+    "========================================"
+  );
 
   try {
+    let {
+      phone,
+      purpose = "signup",
+    } = req.body;
 
-    const user = await User.findById(req.user.id).select("-mpin");
+    // ======================================================
+    // Validate Phone
+    // ======================================================
 
-    if (!user) {
-
-      return res.status(404).json({
-
+    if (
+      !phone ||
+      typeof phone !== "string"
+    ) {
+      return res.status(400).json({
         success: false,
-        message: "User not found.",
+        message:
+          "Phone number is required.",
+      });
+    }
 
+    phone =
+      normalizePhoneNumber(phone);
+
+    console.log(
+      "Phone:",
+      phone
+    );
+
+    console.log(
+      "Purpose:",
+      purpose
+    );
+
+    if (
+      !isValidIndianPhoneNumber(
+        phone
+      )
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid Indian phone number.",
+      });
+    }
+
+    // ======================================================
+    // For signup:
+    // Prevent sending OTP to an existing account.
+    // ======================================================
+
+    if (purpose === "signup") {
+      const existingUser =
+        await User.findOne({
+          phoneNumber: phone,
+        });
+
+      if (existingUser) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "This phone number is already registered.",
+        });
+      }
+    }
+
+    // ======================================================
+    // Send OTP Through Message Central
+    // ======================================================
+
+    const result =
+      await otpService.sendPhoneOtp(
+        phone
+      );
+
+    console.log(
+      "========== OTP SERVICE RESULT =========="
+    );
+
+    console.log(
+      JSON.stringify(
+        result,
+        null,
+        2
+      )
+    );
+
+    if (
+      !result ||
+      result.success !== true
+    ) {
+      return res.status(502).json({
+        success: false,
+        message:
+          result?.message ||
+          "Failed to send OTP.",
+        data:
+          result || null,
+      });
+    }
+
+    // ======================================================
+    // Response
+    // ======================================================
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "OTP sent successfully.",
+      data: {
+        verificationId:
+          result.verificationId,
+        expiresAt:
+          result.expiresAt,
+      },
+    });
+  } catch (error) {
+    console.error("");
+    console.error(
+      "========================================"
+    );
+    console.error(
+      "SEND PHONE OTP ERROR"
+    );
+    console.error(
+      "========================================"
+    );
+
+    console.error(
+      "Message:",
+      error.message
+    );
+
+    if (error.response) {
+      console.error(
+        "Status:",
+        error.response.status
+      );
+
+      console.error(
+        "Response:",
+        JSON.stringify(
+          error.response.data,
+          null,
+          2
+        )
+      );
+    }
+
+    const providerData =
+      error.response?.data;
+
+    const providerMessage =
+      providerData?.message ||
+      providerData?.errorMessage ||
+      providerData?.error ||
+      providerData?.data?.message ||
+      providerData?.data?.errorMessage;
+
+    const statusCode =
+      error.response?.status &&
+      error.response.status >= 400 &&
+      error.response.status <= 599
+        ? error.response.status
+        : 500;
+
+    return res.status(
+      statusCode
+    ).json({
+      success: false,
+      message:
+        providerMessage ||
+        error.message ||
+        "Failed to send OTP.",
+      data:
+        process.env.NODE_ENV ===
+        "development"
+          ? providerData || null
+          : undefined,
+    });
+  }
+};
+
+// ==========================================================
+// VERIFY PHONE OTP
+//
+// POST /api/auth/verify-phone-otp
+// ==========================================================
+
+exports.verifyPhoneOtp = async (
+  req,
+  res
+) => {
+  console.log("");
+  console.log(
+    "========================================"
+  );
+  console.log(
+    "VERIFY PHONE OTP REQUEST"
+  );
+  console.log(
+    "========================================"
+  );
+
+  try {
+    let {
+      phone,
+      otp,
+    } = req.body;
+
+    // ======================================================
+    // Validate
+    // ======================================================
+
+    if (
+      !phone ||
+      !otp
+    ) {
+      return res.status(400).json({
+        success: false,
+        verified: false,
+        message:
+          "Phone number and OTP are required.",
+      });
+    }
+
+    phone =
+      normalizePhoneNumber(phone);
+
+    otp =
+      String(otp).trim();
+
+    if (
+      !isValidIndianPhoneNumber(
+        phone
+      )
+    ) {
+      return res.status(400).json({
+        success: false,
+        verified: false,
+        message:
+          "Invalid Indian phone number.",
+      });
+    }
+
+    if (
+      !/^\d{6}$/.test(otp)
+    ) {
+      return res.status(400).json({
+        success: false,
+        verified: false,
+        message:
+          "OTP must be exactly 6 digits.",
+      });
+    }
+
+    console.log(
+      "Phone:",
+      phone
+    );
+
+    // Never log the real OTP.
+    console.log(
+      "OTP: ******"
+    );
+
+    // ======================================================
+    // Verify OTP
+    // ======================================================
+
+    const result =
+      await otpService.verifyPhoneOtp(
+        phone,
+        otp
+      );
+
+    console.log(
+      "========== VERIFY RESULT =========="
+    );
+
+    console.log(
+      JSON.stringify(
+        result,
+        null,
+        2
+      )
+    );
+
+    if (
+      !result ||
+      result.success !== true ||
+      result.verified !== true
+    ) {
+      return res.status(400).json({
+        success: false,
+        verified: false,
+        message:
+          result?.message ||
+          "Invalid OTP. Please try again.",
+      });
+    }
+
+    // ======================================================
+    // Check Existing Firebase User
+    // ======================================================
+
+    const user =
+      await User.findOne({
+        phoneNumber: phone,
       });
 
+    // ======================================================
+    // Phone Verified
+    //
+    // IMPORTANT:
+    // For Firebase Authentication signup,
+    // do not create the MongoDB Firebase user here
+    // because Firebase UID does not exist yet.
+    // Flutter should create Firebase account first,
+    // then call POST /api/users.
+    // ======================================================
+
+    return res.status(200).json({
+      success: true,
+      verified: true,
+      message:
+        "Phone verified successfully.",
+      userExists: !!user,
+      user:
+        user || null,
+    });
+  } catch (error) {
+    console.error("");
+    console.error(
+      "========================================"
+    );
+    console.error(
+      "VERIFY PHONE OTP ERROR"
+    );
+    console.error(
+      "========================================"
+    );
+
+    console.error(
+      "Message:",
+      error.message
+    );
+
+    if (error.response) {
+      console.error(
+        "Status:",
+        error.response.status
+      );
+
+      console.error(
+        "Response:",
+        JSON.stringify(
+          error.response.data,
+          null,
+          2
+        )
+      );
+    }
+
+    const providerData =
+      error.response?.data;
+
+    const providerMessage =
+      providerData?.message ||
+      providerData?.errorMessage ||
+      providerData?.error ||
+      providerData?.data?.message ||
+      providerData?.data?.errorMessage;
+
+    return res.status(
+      error.response?.status &&
+      error.response.status >= 400 &&
+      error.response.status <= 599
+        ? error.response.status
+        : 500
+    ).json({
+      success: false,
+      verified: false,
+      message:
+        providerMessage ||
+        error.message ||
+        "OTP verification failed.",
+      data:
+        process.env.NODE_ENV ===
+        "development"
+          ? providerData || null
+          : undefined,
+    });
+  }
+};
+
+// ==========================================================
+// RESEND PHONE OTP
+//
+// POST /api/auth/resend-phone-otp
+// ==========================================================
+
+exports.resendPhoneOtp = async (
+  req,
+  res
+) => {
+  console.log("");
+  console.log(
+    "========================================"
+  );
+  console.log(
+    "RESEND PHONE OTP REQUEST"
+  );
+  console.log(
+    "========================================"
+  );
+
+  try {
+    let {
+      phone,
+    } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Phone number is required.",
+      });
+    }
+
+    phone =
+      normalizePhoneNumber(phone);
+
+    if (
+      !isValidIndianPhoneNumber(
+        phone
+      )
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid Indian phone number.",
+      });
+    }
+
+    const result =
+      await otpService.resendPhoneOtp(
+        phone
+      );
+
+    console.log(
+      "========== RESEND RESULT =========="
+    );
+
+    console.log(
+      JSON.stringify(
+        result,
+        null,
+        2
+      )
+    );
+
+    if (
+      !result ||
+      result.success !== true
+    ) {
+      return res.status(502).json({
+        success: false,
+        message:
+          result?.message ||
+          "Failed to resend OTP.",
+        data:
+          result || null,
+      });
     }
 
     return res.status(200).json({
-
       success: true,
-      user,
-
+      message:
+        "OTP resent successfully.",
+      data: {
+        verificationId:
+          result.verificationId,
+        expiresAt:
+          result.expiresAt,
+      },
     });
-
   } catch (error) {
+    console.error(
+      "RESEND PHONE OTP ERROR:",
+      error
+    );
 
-    console.error(error);
+    const providerData =
+      error.response?.data;
 
-    return res.status(500).json({
+    const providerMessage =
+      providerData?.message ||
+      providerData?.errorMessage ||
+      providerData?.error ||
+      providerData?.data?.message ||
+      providerData?.data?.errorMessage;
 
+    return res.status(
+      error.response?.status || 500
+    ).json({
       success: false,
-      message: error.message,
-
+      message:
+        providerMessage ||
+        error.message ||
+        "Failed to resend OTP.",
+      data:
+        process.env.NODE_ENV ===
+        "development"
+          ? providerData || null
+          : undefined,
     });
-
   }
+};
 
+// ==========================================================
+// EXPORT
+// ==========================================================
+
+module.exports = {
+  createOrUpdateUser:
+    exports.createOrUpdateUser,
+
+  getUserByFirebaseUid:
+    exports.getUserByFirebaseUid,
+
+  deleteUser:
+    exports.deleteUser,
+
+  checkEmail:
+    exports.checkEmail,
+
+  sendPhoneOtp:
+    exports.sendPhoneOtp,
+
+  verifyPhoneOtp:
+    exports.verifyPhoneOtp,
+
+  resendPhoneOtp:
+    exports.resendPhoneOtp,
 };
