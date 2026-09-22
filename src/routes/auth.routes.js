@@ -24,7 +24,7 @@ console.log("====================================");
 
 router.post(
   "/send-phone-otp",
-  sendPhoneOtp
+  sendPhoneOtp,
 );
 
 // ==========================================================
@@ -34,7 +34,7 @@ router.post(
 
 router.post(
   "/verify-phone-otp",
-  verifyPhoneOtp
+  verifyPhoneOtp,
 );
 
 // ==========================================================
@@ -44,9 +44,7 @@ router.post(
 
 router.post(
   "/resend-phone-otp",
-  resendPhoneOtp
+  resendPhoneOtp,
 );
-
-// ==========================================================
 
 module.exports = router;

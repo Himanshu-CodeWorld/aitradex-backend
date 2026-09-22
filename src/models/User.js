@@ -2,7 +2,10 @@ const mongoose = require("mongoose");
 
 const userSchema = new mongoose.Schema(
   {
-    // Firebase Authentication UID
+    // ========================================================
+    // FIREBASE AUTHENTICATION
+    // ========================================================
+
     firebaseUid: {
       type: String,
       required: true,
@@ -11,40 +14,68 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
 
-    // Firebase user information
-    displayName: {
+    // ========================================================
+    // PROFILE
+    // ========================================================
+
+    fullName: {
       type: String,
-      default: "",
+      required: true,
       trim: true,
+    },
+
+    username: {
+      type: String,
+      required: true,
+      unique: true,
+      index: true,
+      lowercase: true,
+      trim: true,
+      minlength: 3,
+      maxlength: 20,
     },
 
     email: {
       type: String,
       required: true,
       unique: true,
+      index: true,
       lowercase: true,
       trim: true,
-      index: true,
     },
+
+    phoneNumber: {
+      type: String,
+      required: true,
+      unique: true,
+      index: true,
+      trim: true,
+    },
+
+    profileImage: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    // ========================================================
+    // VERIFICATION
+    // ========================================================
 
     emailVerified: {
       type: Boolean,
       default: false,
     },
 
-    phoneNumber: {
-      type: String,
-      default: "",
-      trim: true,
+    phoneVerified: {
+      type: Boolean,
+      default: false,
     },
 
-    photoURL: {
-      type: String,
-      default: "",
-      trim: true,
-    },
+    // ========================================================
+    // FIREBASE METADATA
+    // ========================================================
 
-    // Firebase account timestamps
     firebaseCreatedAt: {
       type: Date,
       default: null,
@@ -55,7 +86,10 @@ const userSchema = new mongoose.Schema(
       default: null,
     },
 
-    // MongoDB account status
+    // ========================================================
+    // ACCOUNT STATUS
+    // ========================================================
+
     isActive: {
       type: Boolean,
       default: true,
@@ -69,16 +103,26 @@ const userSchema = new mongoose.Schema(
   {
     timestamps: true,
     versionKey: false,
-  }
+  },
 );
 
-// Normalize email before saving
 userSchema.pre("save", function (next) {
   if (this.email) {
-    this.email = this.email.toLowerCase().trim();
+    this.email = this.email
+      .toLowerCase()
+      .trim();
+  }
+
+  if (this.username) {
+    this.username = this.username
+      .toLowerCase()
+      .trim();
   }
 
   next();
 });
 
-module.exports = mongoose.model("User", userSchema);
+module.exports = mongoose.model(
+  "User",
+  userSchema,
+);

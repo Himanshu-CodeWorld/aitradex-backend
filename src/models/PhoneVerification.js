@@ -25,6 +25,7 @@ const phoneVerificationSchema =
       flowType: {
         type: String,
         default: "SMS",
+        enum: ["SMS"],
       },
 
       expiresAt: {
@@ -38,11 +39,11 @@ const phoneVerificationSchema =
     {
       timestamps: true,
       versionKey: false,
-    }
+    },
   );
 
 module.exports =
   mongoose.model(
     "PhoneVerification",
-    phoneVerificationSchema
+    phoneVerificationSchema,
   );
