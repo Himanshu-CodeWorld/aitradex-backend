@@ -1,4 +1,5 @@
 const User = require("../models/User");
+const phoneOtpService = require("../services/phoneOtpService");
 
 // ==========================================================
 // Normalize Phone Number
@@ -743,20 +744,11 @@ exports.checkEmail = async (
 // POST /api/auth/send-phone-otp
 // ==========================================================
 
-exports.sendPhoneOtp = async (
-  req,
-  res
-) => {
+exports.sendPhoneOtp = async (req, res) => {
   console.log("");
-  console.log(
-    "========================================"
-  );
-  console.log(
-    "SEND PHONE OTP REQUEST"
-  );
-  console.log(
-    "========================================"
-  );
+  console.log("========================================");
+  console.log("SEND PHONE OTP REQUEST");
+  console.log("========================================");
 
   try {
     let {
@@ -765,7 +757,7 @@ exports.sendPhoneOtp = async (
     } = req.body;
 
     // ======================================================
-    // Validate Phone
+    // Validate phone
     // ======================================================
 
     if (
@@ -774,46 +766,38 @@ exports.sendPhoneOtp = async (
     ) {
       return res.status(400).json({
         success: false,
-        message:
-          "Phone number is required.",
-      });
-    }
-
-    phone =
-      normalizePhoneNumber(phone);
-
-    console.log(
-      "Phone:",
-      phone
-    );
-
-    console.log(
-      "Purpose:",
-      purpose
-    );
-
-    if (
-      !isValidIndianPhoneNumber(
-        phone
-      )
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Invalid Indian phone number.",
+        message: "Phone number is required.",
       });
     }
 
     // ======================================================
-    // For signup:
-    // Prevent sending OTP to an existing account.
+    // Normalize phone
+    // ======================================================
+
+    phone = normalizePhoneNumber(phone);
+
+    console.log("Phone:", phone);
+    console.log("Purpose:", purpose);
+
+    // ======================================================
+    // Validate Indian phone
+    // ======================================================
+
+    if (!isValidIndianPhoneNumber(phone)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid Indian phone number.",
+      });
+    }
+
+    // ======================================================
+    // Signup duplicate check
     // ======================================================
 
     if (purpose === "signup") {
-      const existingUser =
-        await User.findOne({
-          phoneNumber: phone,
-        });
+      const existingUser = await User.findOne({
+        phoneNumber: phone,
+      });
 
       if (existingUser) {
         return res.status(409).json({
@@ -825,16 +809,16 @@ exports.sendPhoneOtp = async (
     }
 
     // ======================================================
-    // Send OTP Through Message Central
+    // Send OTP
     // ======================================================
 
     const result =
-      await otpService.sendPhoneOtp(
+      await phoneOtpService.sendPhoneOtp(
         phone
       );
 
     console.log(
-      "========== OTP SERVICE RESULT =========="
+      "========== PHONE OTP SERVICE RESULT =========="
     );
 
     console.log(
@@ -845,6 +829,10 @@ exports.sendPhoneOtp = async (
       )
     );
 
+    // ======================================================
+    // Validate service result
+    // ======================================================
+
     if (
       !result ||
       result.success !== true
@@ -854,13 +842,12 @@ exports.sendPhoneOtp = async (
         message:
           result?.message ||
           "Failed to send OTP.",
-        data:
-          result || null,
+        data: result || null,
       });
     }
 
     // ======================================================
-    // Response
+    // Success
     // ======================================================
 
     return res.status(200).json({
@@ -924,9 +911,7 @@ exports.sendPhoneOtp = async (
         ? error.response.status
         : 500;
 
-    return res.status(
-      statusCode
-    ).json({
+    return res.status(statusCode).json({
       success: false,
       message:
         providerMessage ||
@@ -947,10 +932,7 @@ exports.sendPhoneOtp = async (
 // POST /api/auth/verify-phone-otp
 // ==========================================================
 
-exports.verifyPhoneOtp = async (
-  req,
-  res
-) => {
+exports.verifyPhoneOtp = async (req, res) => {
   console.log("");
   console.log(
     "========================================"
@@ -969,13 +951,10 @@ exports.verifyPhoneOtp = async (
     } = req.body;
 
     // ======================================================
-    // Validate
+    // Validate input
     // ======================================================
 
-    if (
-      !phone ||
-      !otp
-    ) {
+    if (!phone || !otp) {
       return res.status(400).json({
         success: false,
         verified: false,
@@ -984,17 +963,21 @@ exports.verifyPhoneOtp = async (
       });
     }
 
+    // ======================================================
+    // Normalize phone
+    // ======================================================
+
     phone =
       normalizePhoneNumber(phone);
 
     otp =
       String(otp).trim();
 
-    if (
-      !isValidIndianPhoneNumber(
-        phone
-      )
-    ) {
+    // ======================================================
+    // Validate phone
+    // ======================================================
+
+    if (!isValidIndianPhoneNumber(phone)) {
       return res.status(400).json({
         success: false,
         verified: false,
@@ -1003,9 +986,11 @@ exports.verifyPhoneOtp = async (
       });
     }
 
-    if (
-      !/^\d{6}$/.test(otp)
-    ) {
+    // ======================================================
+    // Validate OTP
+    // ======================================================
+
+    if (!/^\d{6}$/.test(otp)) {
       return res.status(400).json({
         success: false,
         verified: false,
@@ -1019,7 +1004,7 @@ exports.verifyPhoneOtp = async (
       phone
     );
 
-    // Never log the real OTP.
+    // Never print actual OTP
     console.log(
       "OTP: ******"
     );
@@ -1029,7 +1014,7 @@ exports.verifyPhoneOtp = async (
     // ======================================================
 
     const result =
-      await otpService.verifyPhoneOtp(
+      await phoneOtpService.verifyPhoneOtp(
         phone,
         otp
       );
@@ -1046,6 +1031,10 @@ exports.verifyPhoneOtp = async (
       )
     );
 
+    // ======================================================
+    // Verification failed
+    // ======================================================
+
     if (
       !result ||
       result.success !== true ||
@@ -1061,7 +1050,7 @@ exports.verifyPhoneOtp = async (
     }
 
     // ======================================================
-    // Check Existing Firebase User
+    // Check existing user
     // ======================================================
 
     const user =
@@ -1070,14 +1059,18 @@ exports.verifyPhoneOtp = async (
       });
 
     // ======================================================
-    // Phone Verified
+    // IMPORTANT
     //
-    // IMPORTANT:
-    // For Firebase Authentication signup,
-    // do not create the MongoDB Firebase user here
-    // because Firebase UID does not exist yet.
-    // Flutter should create Firebase account first,
-    // then call POST /api/users.
+    // Do not create Firebase user here.
+    //
+    // Firebase UID does not exist until Flutter
+    // creates the Firebase Authentication account.
+    //
+    // Flutter should:
+    //
+    // 1. Verify phone
+    // 2. Create Firebase account
+    // 3. POST /api/users
     // ======================================================
 
     return res.status(200).json({
@@ -1086,8 +1079,7 @@ exports.verifyPhoneOtp = async (
       message:
         "Phone verified successfully.",
       userExists: !!user,
-      user:
-        user || null,
+      user: user || null,
     });
   } catch (error) {
     console.error("");
@@ -1132,13 +1124,14 @@ exports.verifyPhoneOtp = async (
       providerData?.data?.message ||
       providerData?.data?.errorMessage;
 
-    return res.status(
+    const statusCode =
       error.response?.status &&
       error.response.status >= 400 &&
       error.response.status <= 599
         ? error.response.status
-        : 500
-    ).json({
+        : 500;
+
+    return res.status(statusCode).json({
       success: false,
       verified: false,
       message:
@@ -1148,7 +1141,7 @@ exports.verifyPhoneOtp = async (
       data:
         process.env.NODE_ENV ===
         "development"
-          ? providerData || null
+          ? providerData
           : undefined,
     });
   }
@@ -1160,10 +1153,7 @@ exports.verifyPhoneOtp = async (
 // POST /api/auth/resend-phone-otp
 // ==========================================================
 
-exports.resendPhoneOtp = async (
-  req,
-  res
-) => {
+exports.resendPhoneOtp = async (req, res) => {
   console.log("");
   console.log(
     "========================================"
@@ -1180,6 +1170,10 @@ exports.resendPhoneOtp = async (
       phone,
     } = req.body;
 
+    // ======================================================
+    // Validate
+    // ======================================================
+
     if (!phone) {
       return res.status(400).json({
         success: false,
@@ -1188,14 +1182,14 @@ exports.resendPhoneOtp = async (
       });
     }
 
+    // ======================================================
+    // Normalize
+    // ======================================================
+
     phone =
       normalizePhoneNumber(phone);
 
-    if (
-      !isValidIndianPhoneNumber(
-        phone
-      )
-    ) {
+    if (!isValidIndianPhoneNumber(phone)) {
       return res.status(400).json({
         success: false,
         message:
@@ -1203,8 +1197,17 @@ exports.resendPhoneOtp = async (
       });
     }
 
+    console.log(
+      "Phone:",
+      phone
+    );
+
+    // ======================================================
+    // Resend OTP
+    // ======================================================
+
     const result =
-      await otpService.resendPhoneOtp(
+      await phoneOtpService.resendPhoneOtp(
         phone
       );
 
@@ -1229,10 +1232,13 @@ exports.resendPhoneOtp = async (
         message:
           result?.message ||
           "Failed to resend OTP.",
-        data:
-          result || null,
+        data: result || null,
       });
     }
+
+    // ======================================================
+    // Success
+    // ======================================================
 
     return res.status(200).json({
       success: true,
@@ -1261,9 +1267,14 @@ exports.resendPhoneOtp = async (
       providerData?.data?.message ||
       providerData?.data?.errorMessage;
 
-    return res.status(
-      error.response?.status || 500
-    ).json({
+    const statusCode =
+      error.response?.status &&
+      error.response.status >= 400 &&
+      error.response.status <= 599
+        ? error.response.status
+        : 500;
+
+    return res.status(statusCode).json({
       success: false,
       message:
         providerMessage ||

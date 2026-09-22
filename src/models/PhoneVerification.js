@@ -1,46 +1,48 @@
 const mongoose = require("mongoose");
 
-const phoneVerificationSchema = new mongoose.Schema(
-  {
-    phone: {
-      type: String,
-      required: true,
-      trim: true,
-      unique: true,
-      index: true,
-    },
+const phoneVerificationSchema =
+  new mongoose.Schema(
+    {
+      phone: {
+        type: String,
+        required: true,
+        trim: true,
+        unique: true,
+        index: true,
+      },
 
-    verificationId: {
-      type: String,
-      required: true,
-      trim: true,
-    },
+      verificationId: {
+        type: String,
+        required: true,
+        trim: true,
+      },
 
-    verified: {
-      type: Boolean,
-      default: false,
-    },
+      verified: {
+        type: Boolean,
+        default: false,
+      },
 
-    flowType: {
-      type: String,
-      default: "SMS",
-    },
+      flowType: {
+        type: String,
+        default: "SMS",
+      },
 
-    expiresAt: {
-      type: Date,
-      required: true,
-      index: {
-        expires: 0, // Auto delete after expiry
+      expiresAt: {
+        type: Date,
+        required: true,
+        index: {
+          expires: 0,
+        },
       },
     },
-  },
-  {
-    timestamps: true,
-    versionKey: false,
-  }
-);
+    {
+      timestamps: true,
+      versionKey: false,
+    }
+  );
 
-module.exports = mongoose.model(
-  "PhoneVerification",
-  phoneVerificationSchema
-);
+module.exports =
+  mongoose.model(
+    "PhoneVerification",
+    phoneVerificationSchema
+  );
