@@ -5,26 +5,16 @@ const admin = require("../config/firebaseAdmin");
  * AiTradeX Firebase Authentication Middleware
  * ==========================================================
  *
- * Flutter sends:
+ * Flutter:
  *
  * Authorization: Bearer <Firebase ID Token>
  *
- * Backend verifies the token using:
+ * Backend:
  *
  * admin.auth().verifyIdToken(idToken)
  *
- * IMPORTANT:
- * Firebase ID tokens must NOT be verified with:
- *
- * jwt.verify()
- *
- * Firebase Admin SDK handles:
- * - Signature verification
- * - Firebase project verification
- * - Token expiration
- * - Issuer verification
- * - Audience verification
- * - Token claims
+ * Firebase ID tokens must NOT be verified using
+ * jsonwebtoken.verify().
  * ==========================================================
  */
 
@@ -36,15 +26,13 @@ const authMiddleware = async (req, res, next) => {
     console.log("========================================");
 
     // ========================================================
-    // 1. GET AUTHORIZATION HEADER
+    // GET AUTHORIZATION HEADER
     // ========================================================
 
     const authorization = req.headers.authorization;
 
     if (!authorization) {
       console.log("❌ Authorization header missing");
-      console.log("========================================");
-      console.log("");
 
       return res.status(401).json({
         success: false,
@@ -53,14 +41,11 @@ const authMiddleware = async (req, res, next) => {
     }
 
     // ========================================================
-    // 2. CHECK BEARER FORMAT
+    // CHECK BEARER TOKEN
     // ========================================================
 
     if (!authorization.startsWith("Bearer ")) {
       console.log("❌ Invalid Authorization header format");
-      console.log("Expected: Bearer <Firebase ID Token>");
-      console.log("========================================");
-      console.log("");
 
       return res.status(401).json({
         success: false,
@@ -69,15 +54,13 @@ const authMiddleware = async (req, res, next) => {
     }
 
     // ========================================================
-    // 3. EXTRACT FIREBASE ID TOKEN
+    // EXTRACT FIREBASE ID TOKEN
     // ========================================================
 
     const idToken = authorization.substring(7).trim();
 
     if (!idToken) {
       console.log("❌ Firebase ID token is empty");
-      console.log("========================================");
-      console.log("");
 
       return res.status(401).json({
         success: false,
@@ -88,25 +71,17 @@ const authMiddleware = async (req, res, next) => {
     console.log("Firebase ID token received: true");
 
     // ========================================================
-    // 4. VERIFY FIREBASE ID TOKEN
-    // ========================================================
-    //
-    // DO NOT USE:
-    //
-    // jwt.verify(idToken, process.env.JWT_SECRET)
-    //
-    // Firebase ID tokens are verified by Firebase Admin SDK.
-    //
+    // VERIFY FIREBASE ID TOKEN
     // ========================================================
 
     const decodedToken = await admin.auth().verifyIdToken(idToken);
 
     // ========================================================
-    // 5. VALIDATE DECODED TOKEN
+    // VALIDATE TOKEN
     // ========================================================
 
     if (!decodedToken) {
-      console.log("❌ Firebase token decoded to empty value");
+      console.log("❌ Firebase token could not be decoded");
 
       return res.status(401).json({
         success: false,
@@ -115,7 +90,7 @@ const authMiddleware = async (req, res, next) => {
     }
 
     if (!decodedToken.uid) {
-      console.log("❌ Firebase UID missing from token");
+      console.log("❌ Firebase UID missing");
 
       return res.status(401).json({
         success: false,
@@ -124,13 +99,13 @@ const authMiddleware = async (req, res, next) => {
     }
 
     // ========================================================
-    // 6. ATTACH FIREBASE USER TO REQUEST
+    // ATTACH FIREBASE USER TO REQUEST
     // ========================================================
 
     req.user = decodedToken;
 
     // ========================================================
-    // 7. AUTHENTICATION SUCCESS LOG
+    // SUCCESS
     // ========================================================
 
     console.log("✅ Firebase token verified successfully");
@@ -146,34 +121,23 @@ const authMiddleware = async (req, res, next) => {
     console.log("========================================");
     console.log("");
 
-    // ========================================================
-    // 8. CONTINUE REQUEST
-    // ========================================================
-
     return next();
   } catch (error) {
-    // ========================================================
-    // FIREBASE AUTH ERROR
-    // ========================================================
-
     console.error("");
     console.error("========================================");
     console.error("❌ FIREBASE TOKEN VERIFICATION FAILED");
     console.error("========================================");
-    console.error("Error code:", error.code || "N/A");
-    console.error("Error name:", error.name || "N/A");
-    console.error("Error message:", error.message || "Unknown error");
+    console.error("Code:", error.code || "N/A");
+    console.error("Name:", error.name || "N/A");
+    console.error("Message:", error.message || "Unknown error");
     console.error("========================================");
     console.error("");
 
     // ========================================================
-    // TOKEN EXPIRED
+    // EXPIRED TOKEN
     // ========================================================
 
-    if (
-      error.code === "auth/id-token-expired" ||
-      error.code === "auth/id-token-expired"
-    ) {
+    if (error.code === "auth/id-token-expired") {
       return res.status(401).json({
         success: false,
         message: "Firebase authentication token has expired.",
@@ -182,7 +146,7 @@ const authMiddleware = async (req, res, next) => {
     }
 
     // ========================================================
-    // TOKEN REVOKED
+    // REVOKED TOKEN
     // ========================================================
 
     if (error.code === "auth/id-token-revoked") {
@@ -209,7 +173,7 @@ const authMiddleware = async (req, res, next) => {
     }
 
     // ========================================================
-    // DEFAULT AUTHENTICATION ERROR
+    // DEFAULT ERROR
     // ========================================================
 
     return res.status(401).json({
