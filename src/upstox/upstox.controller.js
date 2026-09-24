@@ -3,6 +3,7 @@
 // ==========================================================
 
 const upstoxService = require("./upstox.service");
+const { setAccessToken } = require("./upstox.token.store");
 
 // ==========================================================
 // Upstox Controller
@@ -253,6 +254,22 @@ class UpstoxController {
             "Upstox authentication succeeded, but the access token could not be verified.",
         });
       }
+
+      // ----------------------------------------------------
+      // Cache the verified token for immediate market-data use
+      // ----------------------------------------------------
+      //
+      // The token remains server-side and is never returned to
+      // Flutter/browser.
+      //
+      // For production multi-user deployments, replace this
+      // runtime cache with encrypted per-user persistence.
+      // ----------------------------------------------------
+
+      setAccessToken(
+        tokenData.access_token,
+        tokenData.expires_in
+      );
 
       // ----------------------------------------------------
       // IMPORTANT

@@ -23,6 +23,9 @@ const UPSTOX_CONFIG = {
 
   apiBaseUrl: "https://api.upstox.com/v2",
 
+  // Market Quote V3 APIs.
+  marketApiBaseUrl: "https://api.upstox.com/v3",
+
   authorizationUrl:
     "https://api.upstox.com/v2/login/authorization/dialog",
 
