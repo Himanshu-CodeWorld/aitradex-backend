@@ -1,3 +1,5 @@
+// src/config/firebaseAdmin.js
+
 require("dotenv").config();
 
 const {
@@ -6,6 +8,10 @@ const {
   getApp,
   cert,
 } = require("firebase-admin/app");
+
+const {
+  getAuth,
+} = require("firebase-admin/auth");
 
 // ==========================================================
 // FIREBASE ADMIN CONFIGURATION
@@ -84,9 +90,9 @@ try {
 
     firebaseApp = initializeApp({
       credential: cert({
-        projectId,
-        clientEmail,
-        privateKey,
+        projectId: projectId,
+        clientEmail: clientEmail,
+        privateKey: privateKey,
       }),
     });
 
@@ -111,7 +117,16 @@ try {
 }
 
 // ==========================================================
-// EXPORT FIREBASE ADMIN APP
+// FIREBASE AUTH
 // ==========================================================
 
-module.exports = firebaseApp;
+const firebaseAuth = getAuth(firebaseApp);
+
+// ==========================================================
+// EXPORTS
+// ==========================================================
+
+module.exports = {
+  firebaseApp,
+  firebaseAuth,
+};

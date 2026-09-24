@@ -1,3 +1,5 @@
+// server.js
+
 require("dotenv").config();
 
 const express = require("express");
@@ -8,8 +10,13 @@ const cookieParser = require("cookie-parser");
 
 const connectDB = require("./src/config/db");
 
+// ==========================================================
+// ROUTES
+// ==========================================================
+
 const authRoutes = require("./src/routes/auth.routes");
 const userRoutes = require("./src/routes/user.routes");
+const aiRoutes = require("./src/routes/ai.routes");
 
 // ==========================================================
 // APP INITIALIZATION
@@ -26,7 +33,18 @@ const PORT = process.env.PORT || 10000;
 app.use(
   cors({
     origin: "*",
-    credentials: true,
+    methods: [
+      "GET",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+      "OPTIONS",
+    ],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+    ],
   })
 );
 
@@ -42,11 +60,16 @@ app.use(morgan("dev"));
 // BODY PARSERS
 // ==========================================================
 
-app.use(express.json());
+app.use(
+  express.json({
+    limit: "2mb",
+  })
+);
 
 app.use(
   express.urlencoded({
     extended: true,
+    limit: "2mb",
   })
 );
 
@@ -64,7 +87,8 @@ app.get("/", (req, res) => {
   return res.status(200).json({
     success: true,
     message: "AiTradeX Backend API is running",
-    environment: process.env.NODE_ENV || "development",
+    environment:
+      process.env.NODE_ENV || "development",
   });
 });
 
@@ -77,25 +101,84 @@ console.log("========================================");
 console.log("📦 Loading API Routes");
 console.log("========================================");
 
-// ----------------------------------------------------------
+// ==========================================================
 // AUTH ROUTES
+// ==========================================================
+//
 // Base URL:
 // /api/auth
-// ----------------------------------------------------------
+//
+// Examples:
+// POST /api/auth/...
+// ==========================================================
 
-app.use("/api/auth", authRoutes);
+app.use(
+  "/api/auth",
+  authRoutes
+);
 
-console.log("✅ Auth Routes Loaded");
+console.log(
+  "✅ Auth Routes Loaded"
+);
 
-// ----------------------------------------------------------
+// ==========================================================
 // USER ROUTES
+// ==========================================================
+//
 // Base URL:
 // /api/users
-// ----------------------------------------------------------
+//
+// Firebase authentication middleware is handled
+// inside the relevant user routes.
+// ==========================================================
 
-app.use("/api/users", userRoutes);
+app.use(
+  "/api/users",
+  userRoutes
+);
 
-console.log("✅ User Routes Loaded");
+console.log(
+  "✅ User Routes Loaded"
+);
+
+// ==========================================================
+// AI ROUTES
+// ==========================================================
+//
+// Base URL:
+// /api/ai
+//
+// Chat endpoint:
+// POST /api/ai/chat
+//
+// Authentication:
+// Authorization: Bearer <Firebase ID Token>
+//
+// Flow:
+//
+// Flutter
+//    ↓
+// Firebase ID Token
+//    ↓
+// firebaseAuth.middleware.js
+//    ↓
+// ai.controller.js
+//    ↓
+// Groq API
+//    ↓
+// MongoDB
+//    ↓
+// Flutter
+// ==========================================================
+
+app.use(
+  "/api/ai",
+  aiRoutes
+);
+
+console.log(
+  "✅ AI Routes Loaded"
+);
 
 console.log("========================================");
 console.log("");
@@ -126,21 +209,33 @@ app.use((req, res) => {
 // GLOBAL ERROR HANDLER
 // ==========================================================
 
-app.use((error, req, res, next) => {
-  console.error("");
-  console.error("========================================");
-  console.error("❌ GLOBAL SERVER ERROR");
-  console.error("========================================");
-  console.error("Message:", error.message);
-  console.error("Stack:", error.stack);
-  console.error("========================================");
-  console.error("");
+app.use(
+  (error, req, res, next) => {
+    console.error("");
+    console.error("========================================");
+    console.error("❌ GLOBAL SERVER ERROR");
+    console.error("========================================");
+    console.error(
+      "Message:",
+      error.message
+    );
+    console.error(
+      "Stack:",
+      error.stack
+    );
+    console.error("========================================");
+    console.error("");
 
-  return res.status(error.status || 500).json({
-    success: false,
-    message: error.message || "Internal server error.",
-  });
-});
+    return res.status(
+      error.status || 500
+    ).json({
+      success: false,
+      message:
+        error.message ||
+        "Internal server error.",
+    });
+  }
+);
 
 // ==========================================================
 // START SERVER
@@ -148,9 +243,9 @@ app.use((error, req, res, next) => {
 
 const startServer = async () => {
   try {
-    // ------------------------------------------------------
-    // Connect MongoDB
-    // ------------------------------------------------------
+    // ======================================================
+    // CONNECT MONGODB
+    // ======================================================
 
     await connectDB();
 
@@ -158,30 +253,50 @@ const startServer = async () => {
     console.log("========================================");
     console.log("🚀 AiTradeX Backend Started");
     console.log("========================================");
-    console.log(`🌐 Server      : http://localhost:${PORT}`);
+    console.log(
+      `🌐 Server      : http://localhost:${PORT}`
+    );
     console.log(
       `📦 Environment : ${
-        process.env.NODE_ENV || "development"
+        process.env.NODE_ENV ||
+        "development"
       }`
+    );
+    console.log(
+      "🤖 AI Provider : Groq"
+    );
+    console.log(
+      "🧠 AI Model    : openai/gpt-oss-120b"
     );
     console.log("========================================");
     console.log("");
 
-    // ------------------------------------------------------
-    // Start Express Server
-    // ------------------------------------------------------
+    // ======================================================
+    // START EXPRESS SERVER
+    // ======================================================
 
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(
-        `🚀 Server listening on port ${PORT}`
-      );
-    });
+    app.listen(
+      PORT,
+      "0.0.0.0",
+      () => {
+        console.log(
+          `🚀 Server listening on port ${PORT}`
+        );
+      }
+    );
   } catch (error) {
     console.error("");
     console.error("========================================");
     console.error("❌ SERVER STARTUP FAILED");
     console.error("========================================");
-    console.error(error);
+    console.error(
+      "Message:",
+      error.message
+    );
+    console.error(
+      "Stack:",
+      error.stack
+    );
     console.error("========================================");
     console.error("");
 
