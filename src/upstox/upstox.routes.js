@@ -4,8 +4,9 @@
 
 const express = require("express");
 
-const upstoxController = require(
-  "./upstox.controller"
+const upstoxController = require("./upstox.controller");
+const upstoxMarketController = require(
+  "./upstox.market.controller"
 );
 
 // ==========================================================
@@ -20,12 +21,15 @@ const router = express.Router();
 //
 // GET /api/upstox/login
 //
+// Opens the Upstox OAuth authorization page.
+//
 // ==========================================================
 
 router.get(
   "/login",
-  (req, res) =>
-    upstoxController.login(req, res)
+  (req, res) => {
+    return upstoxController.login(req, res);
+  }
 );
 
 // ==========================================================
@@ -34,12 +38,47 @@ router.get(
 //
 // GET /api/upstox/callback
 //
+// Upstox redirects here after authorization.
+//
 // ==========================================================
 
 router.get(
   "/callback",
-  (req, res) =>
-    upstoxController.callback(req, res)
+  (req, res) => {
+    return upstoxController.callback(req, res);
+  }
+);
+
+// ==========================================================
+// MARKET DATA
+// ==========================================================
+//
+// GET /api/upstox/market-data
+//
+// Example:
+//
+// /api/upstox/market-data
+//
+// Optional:
+//
+// /api/upstox/market-data?instrument_key=NSE_EQ|INE002A01018
+//
+// Multiple:
+//
+// /api/upstox/market-data?instrument_key=NSE_EQ|INE002A01018,NSE_EQ|INE040A01034
+//
+// The Flutter Invest screen uses this endpoint.
+//
+// ==========================================================
+
+router.get(
+  "/market-data",
+  (req, res) => {
+    return upstoxMarketController.getMarketData(
+      req,
+      res
+    );
+  }
 );
 
 // ==========================================================

@@ -36,24 +36,68 @@ const PORT = Number(process.env.PORT) || 10000;
 const NODE_ENV =
   process.env.NODE_ENV || "development";
 
+const IS_PRODUCTION =
+  NODE_ENV === "production";
+
 // ==========================================================
 // BASIC APP CONFIGURATION
 // ==========================================================
 
 app.disable("x-powered-by");
 
-// Render runs behind a reverse proxy.
-if (NODE_ENV === "production") {
+if (IS_PRODUCTION) {
+  // Render runs behind a reverse proxy.
   app.set("trust proxy", 1);
 }
 
 // ==========================================================
 // SECURITY / CORS
 // ==========================================================
+//
+// Flutter mobile requests generally do not send an Origin header.
+// Browser requests do.
+//
+// We intentionally do NOT use:
+//   credentials: true
+//
+// together with:
+//   origin: "*"
+//
+// because browsers reject wildcard origins with credentials.
+//
+// Upstox OAuth uses an HTTP-only cookie on the backend and
+// does not require cross-origin credentialed API requests.
+//
+
+const configuredOrigins = (
+  process.env.CORS_ORIGINS || ""
+)
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 app.use(
   cors({
-    origin: "*",
+    origin: (origin, callback) => {
+      // Mobile apps / Postman / server-to-server requests.
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      // If no specific origins are configured,
+      // allow browser origins.
+      if (configuredOrigins.length === 0) {
+        return callback(null, true);
+      }
+
+      if (configuredOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(
+        new Error("CORS origin not allowed")
+      );
+    },
 
     methods: [
       "GET",
@@ -68,7 +112,16 @@ app.use(
       "Content-Type",
       "Authorization",
       "Accept",
+      "Origin",
+      "X-Requested-With",
     ],
+
+    exposedHeaders: [
+      "Content-Length",
+      "Content-Type",
+    ],
+
+    optionsSuccessStatus: 204,
   })
 );
 
@@ -88,7 +141,7 @@ app.use(
 
 app.use(
   morgan(
-    NODE_ENV === "production"
+    IS_PRODUCTION
       ? "combined"
       : "dev"
   )
@@ -121,6 +174,20 @@ app.use(
 app.use(cookieParser());
 
 // ==========================================================
+// REQUEST DEBUGGING
+// ==========================================================
+
+if (!IS_PRODUCTION) {
+  app.use((req, res, next) => {
+    console.log(
+      `[REQUEST] ${req.method} ${req.originalUrl}`
+    );
+
+    next();
+  });
+}
+
+// ==========================================================
 // STARTUP INFORMATION
 // ==========================================================
 
@@ -138,6 +205,30 @@ console.log(
 );
 
 console.log(
+  `🗄️ MongoDB     : ${
+    process.env.MONGODB_URI
+      ? "Configured"
+      : "Not Configured"
+  }`
+);
+
+console.log(
+  `🔐 Firebase    : ${
+    process.env.FIREBASE_PROJECT_ID
+      ? "Configured"
+      : "Check Config"
+  }`
+);
+
+console.log(
+  `🤖 Groq        : ${
+    process.env.GROQ_API_KEY
+      ? "Configured"
+      : "Not Configured"
+  }`
+);
+
+console.log(
   `📈 Upstox      : ${
     process.env.UPSTOX_CLIENT_ID
       ? "Configured"
@@ -149,13 +240,14 @@ console.log("========================================");
 console.log("");
 
 // ==========================================================
-// HEALTH CHECK
+// ROOT HEALTH CHECK
 // ==========================================================
 
 app.get("/", (req, res) => {
   return res.status(200).json({
     success: true,
     message: "AiTradeX Backend API is running",
+    service: "AiTradeX Backend",
     environment: NODE_ENV,
     timestamp: new Date().toISOString(),
   });
@@ -171,6 +263,7 @@ app.get("/api/health", (req, res) => {
     service: "AiTradeX Backend",
     status: "healthy",
     environment: NODE_ENV,
+    database: "connected",
     timestamp: new Date().toISOString(),
   });
 });
@@ -189,6 +282,11 @@ console.log("========================================");
 //
 // Base:
 // /api/auth
+//
+// Examples:
+// POST /api/auth/send-otp
+// POST /api/auth/verify-otp
+// POST /api/auth/resend-otp
 //
 // ==========================================================
 
@@ -252,17 +350,14 @@ console.log(
 // Base:
 // /api/upstox
 //
-// OAuth Login:
-// GET /api/upstox/login
+// OAuth:
 //
-// OAuth Callback:
+// GET /api/upstox/login
 // GET /api/upstox/callback
 //
-// Future market APIs:
-// GET /api/upstox/quote
-// GET /api/upstox/quotes
-// GET /api/upstox/ohlc
-// GET /api/upstox/ltp
+// Market:
+//
+// GET /api/upstox/market-data
 //
 // ==========================================================
 
@@ -284,19 +379,27 @@ console.log("📍 Registered API Routes");
 console.log("========================================");
 
 console.log(
-  "🔐 Auth   : /api/auth"
+  "🔐 Auth        : /api/auth"
 );
 
 console.log(
-  "👤 Users  : /api/users"
+  "👤 Users       : /api/users"
 );
 
 console.log(
-  "🤖 AI     : /api/ai"
+  "🤖 AI          : /api/ai"
 );
 
 console.log(
-  "📈 Upstox : /api/upstox"
+  "📈 Upstox      : /api/upstox"
+);
+
+console.log(
+  "🔗 Upstox Login: /api/upstox/login"
+);
+
+console.log(
+  "📊 Market Data : /api/upstox/market-data"
 );
 
 console.log("========================================");
@@ -307,7 +410,7 @@ console.log("");
 // ==========================================================
 //
 // IMPORTANT:
-// This MUST be after every API route.
+// This MUST be after all API routes.
 //
 
 app.use((req, res) => {
@@ -375,36 +478,163 @@ app.use(
 
     console.error(
       "Message:",
-      error.message
+      error?.message
     );
 
-    console.error(
-      "Stack  :",
-      error.stack
-    );
+    if (error?.stack) {
+      console.error(
+        "Stack  :",
+        error.stack
+      );
+    }
 
     console.error(
       "========================================"
     );
     console.error("");
 
+    // CORS error
+    if (
+      error?.message ===
+      "CORS origin not allowed"
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "CORS origin not allowed",
+      });
+    }
+
+    // Express/body-parser errors
+    if (
+      error?.type ===
+      "entity.too.large"
+    ) {
+      return res.status(413).json({
+        success: false,
+        message: "Request payload is too large.",
+      });
+    }
+
     const statusCode =
-      Number(error.status) ||
-      Number(error.statusCode) ||
+      Number(error?.status) ||
+      Number(error?.statusCode) ||
       500;
 
-    return res.status(statusCode).json({
+    const response = {
       success: false,
       message:
-        error.message ||
-        "Internal server error.",
-    });
+        IS_PRODUCTION && statusCode === 500
+          ? "Internal server error."
+          : error?.message ||
+            "Internal server error.",
+    };
+
+    if (!IS_PRODUCTION) {
+      response.stack = error?.stack;
+    }
+
+    return res
+      .status(statusCode)
+      .json(response);
   }
 );
 
 // ==========================================================
+// ENVIRONMENT VALIDATION
+// ==========================================================
+
+const validateEnvironment = () => {
+  const warnings = [];
+
+  // --------------------------------------------------------
+  // MongoDB
+  // --------------------------------------------------------
+
+  if (!process.env.MONGODB_URI) {
+    warnings.push(
+      "MONGODB_URI is not configured"
+    );
+  }
+
+  // --------------------------------------------------------
+  // Firebase
+  // --------------------------------------------------------
+
+  if (
+    !process.env.FIREBASE_PROJECT_ID &&
+    !process.env.FIREBASE_SERVICE_ACCOUNT
+  ) {
+    warnings.push(
+      "Firebase environment configuration was not detected"
+    );
+  }
+
+  // --------------------------------------------------------
+  // Groq
+  // --------------------------------------------------------
+
+  if (!process.env.GROQ_API_KEY) {
+    warnings.push(
+      "GROQ_API_KEY is not configured"
+    );
+  }
+
+  // --------------------------------------------------------
+  // Upstox
+  // --------------------------------------------------------
+
+  if (!process.env.UPSTOX_CLIENT_ID) {
+    warnings.push(
+      "UPSTOX_CLIENT_ID is not configured"
+    );
+  }
+
+  if (!process.env.UPSTOX_CLIENT_SECRET) {
+    warnings.push(
+      "UPSTOX_CLIENT_SECRET is not configured"
+    );
+  }
+
+  if (!process.env.UPSTOX_REDIRECT_URI) {
+    warnings.push(
+      "UPSTOX_REDIRECT_URI is not configured"
+    );
+  }
+
+  // --------------------------------------------------------
+  // Display warnings
+  // --------------------------------------------------------
+
+  if (warnings.length > 0) {
+    console.log("");
+    console.log(
+      "========================================"
+    );
+    console.log(
+      "⚠️ ENVIRONMENT WARNINGS"
+    );
+    console.log(
+      "========================================"
+    );
+
+    warnings.forEach((warning) => {
+      console.log(`⚠️ ${warning}`);
+    });
+
+    console.log(
+      "========================================"
+    );
+    console.log("");
+  }
+
+  return warnings;
+};
+
+// ==========================================================
 // START SERVER
 // ==========================================================
+
+let server = null;
 
 const startServer = async () => {
   try {
@@ -416,45 +646,7 @@ const startServer = async () => {
       "🔍 Checking environment configuration..."
     );
 
-    // ------------------------------------------------------
-    // MongoDB
-    // ------------------------------------------------------
-
-    if (!process.env.MONGODB_URI) {
-      console.warn(
-        "⚠️ MONGODB_URI is not configured."
-      );
-    }
-
-    // ------------------------------------------------------
-    // Upstox Client ID
-    // ------------------------------------------------------
-
-    if (!process.env.UPSTOX_CLIENT_ID) {
-      console.warn(
-        "⚠️ UPSTOX_CLIENT_ID is not configured."
-      );
-    }
-
-    // ------------------------------------------------------
-    // Upstox Client Secret
-    // ------------------------------------------------------
-
-    if (!process.env.UPSTOX_CLIENT_SECRET) {
-      console.warn(
-        "⚠️ UPSTOX_CLIENT_SECRET is not configured."
-      );
-    }
-
-    // ------------------------------------------------------
-    // Upstox Redirect URI
-    // ------------------------------------------------------
-
-    if (!process.env.UPSTOX_REDIRECT_URI) {
-      console.warn(
-        "⚠️ UPSTOX_REDIRECT_URI is not configured."
-      );
-    }
+    validateEnvironment();
 
     // ======================================================
     // CONNECT DATABASE
@@ -476,9 +668,15 @@ const startServer = async () => {
     // ======================================================
 
     console.log("");
-    console.log("========================================");
-    console.log("🚀 AiTradeX Backend Started");
-    console.log("========================================");
+    console.log(
+      "========================================"
+    );
+    console.log(
+      "🚀 AiTradeX Backend Started"
+    );
+    console.log(
+      "========================================"
+    );
 
     console.log(
       `🌐 Environment : ${NODE_ENV}`
@@ -504,17 +702,19 @@ const startServer = async () => {
       }`
     );
 
-    console.log("========================================");
-    console.log("");
+    console.log(
+      "========================================"
+    );
 
     // ======================================================
     // START EXPRESS SERVER
     // ======================================================
 
-    const server = app.listen(
+    server = app.listen(
       PORT,
       "0.0.0.0",
       () => {
+        console.log("");
         console.log(
           "========================================"
         );
@@ -540,7 +740,27 @@ const startServer = async () => {
         );
 
         console.log(
-          "📈 Upstox     : /api/upstox/login"
+          "🔐 Auth       : /api/auth"
+        );
+
+        console.log(
+          "👤 Users      : /api/users"
+        );
+
+        console.log(
+          "🤖 AI         : /api/ai"
+        );
+
+        console.log(
+          "📈 Upstox      : /api/upstox"
+        );
+
+        console.log(
+          "🔗 Upstox Login: /api/upstox/login"
+        );
+
+        console.log(
+          "📊 Market Data : /api/upstox/market-data"
         );
 
         console.log(
@@ -610,13 +830,15 @@ const startServer = async () => {
 
     console.error(
       "Message:",
-      error.message
+      error?.message
     );
 
-    console.error(
-      "Stack:",
-      error.stack
-    );
+    if (error?.stack) {
+      console.error(
+        "Stack:",
+        error.stack
+      );
+    }
 
     console.error(
       "========================================"
@@ -629,6 +851,40 @@ const startServer = async () => {
 };
 
 // ==========================================================
+// GRACEFUL SHUTDOWN
+// ==========================================================
+
+const gracefulShutdown = async (
+  signal
+) => {
+  console.log("");
+  console.log(
+    `🛑 ${signal} received. Shutting down...`
+  );
+
+  if (!server) {
+    process.exit(0);
+  }
+
+  server.close(() => {
+    console.log(
+      "✅ HTTP server closed."
+    );
+
+    process.exit(0);
+  });
+
+  // Safety timeout
+  setTimeout(() => {
+    console.error(
+      "⚠️ Forced shutdown after timeout."
+    );
+
+    process.exit(1);
+  }, 10000).unref();
+};
+
+// ==========================================================
 // PROCESS ERROR HANDLERS
 // ==========================================================
 
@@ -637,9 +893,20 @@ process.on(
   (reason) => {
     console.error("");
     console.error(
+      "========================================"
+    );
+    console.error(
       "❌ UNHANDLED PROMISE REJECTION"
     );
+    console.error(
+      "========================================"
+    );
+
     console.error(reason);
+
+    console.error(
+      "========================================"
+    );
     console.error("");
   }
 );
@@ -649,12 +916,43 @@ process.on(
   (error) => {
     console.error("");
     console.error(
+      "========================================"
+    );
+    console.error(
       "❌ UNCAUGHT EXCEPTION"
     );
-    console.error(error);
+    console.error(
+      "========================================"
+    );
+
+    console.error(
+      error?.stack || error
+    );
+
+    console.error(
+      "========================================"
+    );
     console.error("");
 
     process.exit(1);
+  }
+);
+
+// ==========================================================
+// SIGNAL HANDLERS
+// ==========================================================
+
+process.on(
+  "SIGTERM",
+  () => {
+    gracefulShutdown("SIGTERM");
+  }
+);
+
+process.on(
+  "SIGINT",
+  () => {
+    gracefulShutdown("SIGINT");
   }
 );
 
