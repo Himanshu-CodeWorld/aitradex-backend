@@ -1,18 +1,49 @@
-const express = require('express');
+// ==========================================================
+// AiTradeX - Upstox Routes
+// ==========================================================
 
-const upstoxController =
-  require('./upstox.controller');
+const express = require("express");
+
+const upstoxController = require(
+  "./upstox.controller"
+);
+
+// ==========================================================
+// Router
+// ==========================================================
 
 const router = express.Router();
 
-router.get(
-  '/login',
-  upstoxController.login,
-);
+// ==========================================================
+// OAuth Login
+// ==========================================================
+//
+// GET /api/upstox/login
+//
+// ==========================================================
 
 router.get(
-  '/callback',
-  upstoxController.callback,
+  "/login",
+  (req, res) =>
+    upstoxController.login(req, res)
 );
+
+// ==========================================================
+// OAuth Callback
+// ==========================================================
+//
+// GET /api/upstox/callback
+//
+// ==========================================================
+
+router.get(
+  "/callback",
+  (req, res) =>
+    upstoxController.callback(req, res)
+);
+
+// ==========================================================
+// Export
+// ==========================================================
 
 module.exports = router;

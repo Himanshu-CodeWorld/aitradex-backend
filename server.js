@@ -42,15 +42,7 @@ const NODE_ENV =
 
 app.disable("x-powered-by");
 
-// ==========================================================
-// TRUST PROXY
-// ==========================================================
-//
-// Render runs the application behind a reverse proxy.
-// This allows Express to correctly understand HTTPS requests
-// coming through Render.
-//
-
+// Render runs behind a reverse proxy.
 if (NODE_ENV === "production") {
   app.set("trust proxy", 1);
 }
@@ -62,6 +54,7 @@ if (NODE_ENV === "production") {
 app.use(
   cors({
     origin: "*",
+
     methods: [
       "GET",
       "POST",
@@ -70,6 +63,7 @@ app.use(
       "DELETE",
       "OPTIONS",
     ],
+
     allowedHeaders: [
       "Content-Type",
       "Authorization",
@@ -120,6 +114,9 @@ app.use(
 // ==========================================================
 // COOKIE PARSER
 // ==========================================================
+//
+// Required by Upstox OAuth state validation.
+//
 
 app.use(cookieParser());
 
@@ -131,19 +128,23 @@ console.log("");
 console.log("========================================");
 console.log("🔥 AiTradeX Backend Initializing");
 console.log("========================================");
+
 console.log(
   `📦 Environment : ${NODE_ENV}`
 );
+
 console.log(
   `🔌 Port        : ${PORT}`
 );
+
 console.log(
-  `🟢 Upstox      : ${
+  `📈 Upstox      : ${
     process.env.UPSTOX_CLIENT_ID
       ? "Configured"
       : "Not Configured"
   }`
 );
+
 console.log("========================================");
 console.log("");
 
@@ -189,9 +190,6 @@ console.log("========================================");
 // Base:
 // /api/auth
 //
-// Examples:
-// POST /api/auth/...
-//
 // ==========================================================
 
 app.use(
@@ -213,7 +211,6 @@ console.log(
 // Firebase authentication middleware is handled
 // inside the relevant user routes.
 //
-// ==========================================================
 
 app.use(
   "/api/users",
@@ -236,22 +233,6 @@ console.log(
 //
 // Authentication:
 // Authorization: Bearer <Firebase ID Token>
-//
-// Flow:
-//
-// Flutter
-//    ↓
-// Firebase ID Token
-//    ↓
-// Firebase Auth Middleware
-//    ↓
-// AI Controller
-//    ↓
-// Groq API
-//    ↓
-// MongoDB
-//    ↓
-// Flutter
 //
 // ==========================================================
 
@@ -277,26 +258,11 @@ console.log(
 // OAuth Callback:
 // GET /api/upstox/callback
 //
-// Future Market Data:
+// Future market APIs:
 // GET /api/upstox/quote
+// GET /api/upstox/quotes
 // GET /api/upstox/ohlc
-// etc.
-//
-// Flow:
-//
-// Flutter / Browser
-//        ↓
-// /api/upstox/login
-//        ↓
-// Upstox Login
-//        ↓
-// /api/upstox/callback
-//        ↓
-// Authorization Code
-//        ↓
-// Upstox Token API
-//        ↓
-// Access Token
+// GET /api/upstox/ltp
 //
 // ==========================================================
 
@@ -316,18 +282,23 @@ console.log(
 console.log("========================================");
 console.log("📍 Registered API Routes");
 console.log("========================================");
+
 console.log(
   "🔐 Auth   : /api/auth"
 );
+
 console.log(
   "👤 Users  : /api/users"
 );
+
 console.log(
   "🤖 AI     : /api/ai"
 );
+
 console.log(
   "📈 Upstox : /api/upstox"
 );
+
 console.log("========================================");
 console.log("");
 
@@ -336,7 +307,7 @@ console.log("");
 // ==========================================================
 //
 // IMPORTANT:
-// This must remain AFTER all API routes.
+// This MUST be after every API route.
 //
 
 app.use((req, res) => {
@@ -344,9 +315,22 @@ app.use((req, res) => {
   console.log("========================================");
   console.log("❌ ROUTE NOT FOUND");
   console.log("========================================");
-  console.log("METHOD :", req.method);
-  console.log("URL    :", req.originalUrl);
-  console.log("IP     :", req.ip);
+
+  console.log(
+    "METHOD :",
+    req.method
+  );
+
+  console.log(
+    "URL    :",
+    req.originalUrl
+  );
+
+  console.log(
+    "IP     :",
+    req.ip
+  );
+
   console.log("========================================");
   console.log("");
 
@@ -363,32 +347,45 @@ app.use((req, res) => {
 // ==========================================================
 //
 // IMPORTANT:
-// This must remain the LAST middleware.
+// This MUST remain the final middleware.
 //
 
 app.use(
   (error, req, res, next) => {
     console.error("");
-    console.error("========================================");
-    console.error("❌ GLOBAL SERVER ERROR");
-    console.error("========================================");
+    console.error(
+      "========================================"
+    );
+    console.error(
+      "❌ GLOBAL SERVER ERROR"
+    );
+    console.error(
+      "========================================"
+    );
+
     console.error(
       "Method :",
       req.method
     );
+
     console.error(
       "URL    :",
       req.originalUrl
     );
+
     console.error(
       "Message:",
       error.message
     );
+
     console.error(
       "Stack  :",
       error.stack
     );
-    console.error("========================================");
+
+    console.error(
+      "========================================"
+    );
     console.error("");
 
     const statusCode =
@@ -419,17 +416,19 @@ const startServer = async () => {
       "🔍 Checking environment configuration..."
     );
 
+    // ------------------------------------------------------
+    // MongoDB
+    // ------------------------------------------------------
+
     if (!process.env.MONGODB_URI) {
       console.warn(
         "⚠️ MONGODB_URI is not configured."
       );
     }
 
-    if (!process.env.FIREBASE_PROJECT_ID) {
-      console.warn(
-        "⚠️ Firebase environment variables may not be configured."
-      );
-    }
+    // ------------------------------------------------------
+    // Upstox Client ID
+    // ------------------------------------------------------
 
     if (!process.env.UPSTOX_CLIENT_ID) {
       console.warn(
@@ -437,11 +436,19 @@ const startServer = async () => {
       );
     }
 
+    // ------------------------------------------------------
+    // Upstox Client Secret
+    // ------------------------------------------------------
+
     if (!process.env.UPSTOX_CLIENT_SECRET) {
       console.warn(
         "⚠️ UPSTOX_CLIENT_SECRET is not configured."
       );
     }
+
+    // ------------------------------------------------------
+    // Upstox Redirect URI
+    // ------------------------------------------------------
 
     if (!process.env.UPSTOX_REDIRECT_URI) {
       console.warn(
@@ -450,7 +457,7 @@ const startServer = async () => {
     }
 
     // ======================================================
-    // CONNECT MONGODB
+    // CONNECT DATABASE
     // ======================================================
 
     console.log("");
@@ -472,15 +479,19 @@ const startServer = async () => {
     console.log("========================================");
     console.log("🚀 AiTradeX Backend Started");
     console.log("========================================");
+
     console.log(
       `🌐 Environment : ${NODE_ENV}`
     );
+
     console.log(
       `🔌 Port        : ${PORT}`
     );
+
     console.log(
       "🤖 AI Provider : Groq"
     );
+
     console.log(
       "🧠 AI Model    : openai/gpt-oss-120b"
     );
@@ -504,33 +515,44 @@ const startServer = async () => {
       PORT,
       "0.0.0.0",
       () => {
-        console.log("========================================");
+        console.log(
+          "========================================"
+        );
+
         console.log(
           `🚀 Server listening on port ${PORT}`
         );
+
         console.log(
           `🏠 Local      : http://localhost:${PORT}`
         );
 
-        if (process.env.RENDER_EXTERNAL_URL) {
+        if (
+          process.env.RENDER_EXTERNAL_URL
+        ) {
           console.log(
             `🌍 Render     : ${process.env.RENDER_EXTERNAL_URL}`
           );
         }
 
         console.log(
-          `❤️ Health     : /api/health`
+          "❤️ Health     : /api/health"
         );
+
         console.log(
-          `📈 Upstox     : /api/upstox/login`
+          "📈 Upstox     : /api/upstox/login"
         );
-        console.log("========================================");
+
+        console.log(
+          "========================================"
+        );
+
         console.log("");
       }
     );
 
     // ======================================================
-    // SERVER ERROR HANDLING
+    // HTTP SERVER ERROR
     // ======================================================
 
     server.on(
@@ -540,23 +562,29 @@ const startServer = async () => {
         console.error(
           "========================================"
         );
+
         console.error(
           "❌ HTTP SERVER ERROR"
         );
+
         console.error(
           "========================================"
         );
+
         console.error(
           "Message:",
           error.message
         );
+
         console.error(
           "Code:",
           error.code
         );
+
         console.error(
           "========================================"
         );
+
         console.error("");
 
         process.exit(1);
@@ -571,28 +599,64 @@ const startServer = async () => {
     console.error(
       "========================================"
     );
+
     console.error(
       "❌ SERVER STARTUP FAILED"
     );
+
     console.error(
       "========================================"
     );
+
     console.error(
       "Message:",
       error.message
     );
+
     console.error(
       "Stack:",
       error.stack
     );
+
     console.error(
       "========================================"
     );
+
     console.error("");
 
     process.exit(1);
   }
 };
+
+// ==========================================================
+// PROCESS ERROR HANDLERS
+// ==========================================================
+
+process.on(
+  "unhandledRejection",
+  (reason) => {
+    console.error("");
+    console.error(
+      "❌ UNHANDLED PROMISE REJECTION"
+    );
+    console.error(reason);
+    console.error("");
+  }
+);
+
+process.on(
+  "uncaughtException",
+  (error) => {
+    console.error("");
+    console.error(
+      "❌ UNCAUGHT EXCEPTION"
+    );
+    console.error(error);
+    console.error("");
+
+    process.exit(1);
+  }
+);
 
 // ==========================================================
 // START APPLICATION
