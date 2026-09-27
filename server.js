@@ -436,6 +436,18 @@ console.log(
 );
 
 console.log(
+  "📱 Phone OTP   : POST /api/auth/send-phone-otp"
+);
+
+console.log(
+  "📱 Verify OTP  : POST /api/auth/verify-phone-otp"
+);
+
+console.log(
+  "📱 Resend OTP  : POST /api/auth/resend-phone-otp"
+);
+
+console.log(
   "👤 Users       : /api/users"
 );
 

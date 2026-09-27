@@ -32,8 +32,6 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
 
-    // Google users may not have completed the app username step yet.
-    // Signup users can still provide a username.
     username: {
       type: String,
       required: false,
@@ -55,8 +53,6 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
 
-    // Phone is optional for Google login.
-    // Your phone-OTP signup flow still validates and stores it when provided.
     phoneNumber: {
       type: String,
       required: false,
@@ -70,6 +66,24 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: "",
       trim: true,
+    },
+
+    // ========================================================
+    // REFERRAL
+    // ========================================================
+
+    referralCode: {
+      type: String,
+      default: "",
+      trim: true,
+      uppercase: true,
+    },
+
+    referredBy: {
+      type: String,
+      default: "",
+      trim: true,
+      uppercase: true,
     },
 
     // ========================================================
@@ -131,6 +145,20 @@ userSchema.pre("save", function (next) {
 
   if (this.phoneNumber) {
     this.phoneNumber = this.phoneNumber.trim();
+  }
+
+  if (this.profileImage) {
+    this.profileImage = this.profileImage.trim();
+  }
+
+  if (this.referralCode) {
+    this.referralCode =
+      this.referralCode.trim().toUpperCase();
+  }
+
+  if (this.referredBy) {
+    this.referredBy =
+      this.referredBy.trim().toUpperCase();
   }
 
   next();

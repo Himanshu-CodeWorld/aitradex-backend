@@ -25,7 +25,7 @@ console.log("====================================");
 // Flutter sends:
 // Authorization: Bearer <Firebase ID Token>
 //
-// Backend verifies the token with Firebase Admin,
+// Backend verifies the Firebase ID token with Firebase Admin,
 // then creates/updates the MongoDB user.
 // ==========================================================
 

@@ -62,6 +62,37 @@ const parseFirebaseDate = (value) => {
   return date;
 };
 
+// ==========================================================
+// Normalize Optional String
+// ==========================================================
+
+const normalizeOptionalString = (value) => {
+  if (value === undefined || value === null) {
+    return "";
+  }
+
+  return String(value).trim();
+};
+
+// ==========================================================
+// Normalize Referral Code
+// ==========================================================
+
+const normalizeReferralCode = (value) => {
+  return normalizeOptionalString(value).toUpperCase();
+};
+
+// ==========================================================
+// Normalize Profile Image
+// ==========================================================
+
+const normalizeProfileImage = (profileImage, photoURL = "") => {
+  const candidate = normalizeOptionalString(
+    profileImage || photoURL,
+  );
+
+  return candidate;
+};
 
 // ==========================================================
 // GOOGLE LOGIN
@@ -295,6 +326,8 @@ exports.googleLogin = async (req, res) => {
         email,
         phoneNumber: undefined,
         profileImage,
+        referralCode: "",
+        referredBy: "",
         emailVerified,
         phoneVerified: false,
         firebaseCreatedAt:
@@ -328,6 +361,8 @@ exports.googleLogin = async (req, res) => {
         email: user.email,
         phoneNumber: user.phoneNumber || "",
         profileImage: user.profileImage || "",
+        referralCode: user.referralCode || "",
+        referredBy: user.referredBy || "",
         emailVerified: user.emailVerified,
         phoneVerified: user.phoneVerified,
         isActive: user.isActive,
@@ -414,6 +449,8 @@ exports.createOrUpdateUser = async (req, res) => {
       profileImage,
       phoneVerified,
       authProvider,
+      referralCode,
+      referredBy,
       firebaseCreatedAt,
       firebaseLastSignInAt,
     } = req.body;
@@ -462,14 +499,45 @@ exports.createOrUpdateUser = async (req, res) => {
       fullName || displayName || "",
     ).trim();
 
+    const normalizedUsername =
+      username
+        ? String(username).trim().toLowerCase()
+        : "";
+
     const normalizedPhoneNumber =
       phoneNumber
         ? normalizePhoneNumber(phoneNumber)
         : "";
 
-    const normalizedProfileImage = String(
-      profileImage || photoURL || "",
-    ).trim();
+    const normalizedProfileImage =
+      normalizeProfileImage(
+        profileImage,
+        photoURL,
+      );
+
+    const normalizedReferralCode =
+      normalizeReferralCode(referralCode);
+
+    const normalizedReferredBy =
+      normalizeReferralCode(referredBy);
+
+    const providerValue =
+      String(authProvider || "")
+        .trim()
+        .toLowerCase();
+
+    const normalizedAuthProvider =
+      ["password", "google", "firebase"].includes(
+        providerValue,
+      )
+        ? providerValue
+        : "firebase";
+
+    const normalizedEmailVerified =
+      Boolean(emailVerified);
+
+    const normalizedPhoneVerified =
+      Boolean(phoneVerified);
 
     // ======================================================
     // Validate Full Name
@@ -483,32 +551,80 @@ exports.createOrUpdateUser = async (req, res) => {
     }
 
     // ======================================================
+    // Validate Phone When Provided
+    // ======================================================
+
+    if (
+      normalizedPhoneNumber &&
+      !isValidIndianPhoneNumber(
+        normalizedPhoneNumber,
+      )
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid Indian phone number.",
+      });
+    }
+
+    // ======================================================
     // Log Request
     // ======================================================
 
     console.log(
       "Firebase UID:",
-      normalizedFirebaseUid
+      normalizedFirebaseUid,
     );
 
     console.log(
       "Email:",
-      normalizedEmail
+      normalizedEmail,
     );
 
     console.log(
       "Full Name:",
-      normalizedFullName
+      normalizedFullName,
+    );
+
+    console.log(
+      "Username:",
+      normalizedUsername || "Not provided",
     );
 
     console.log(
       "Phone:",
-      normalizedPhoneNumber || "Not provided"
+      normalizedPhoneNumber || "Not provided",
+    );
+
+    console.log(
+      "Profile Image:",
+      normalizedProfileImage
+        ? "Provided"
+        : "Not provided",
+    );
+
+    console.log(
+      "Referral Code:",
+      normalizedReferralCode || "Not provided",
+    );
+
+    console.log(
+      "Referred By:",
+      normalizedReferredBy || "Not provided",
+    );
+
+    console.log(
+      "Auth Provider:",
+      normalizedAuthProvider,
     );
 
     console.log(
       "Email Verified:",
-      Boolean(emailVerified)
+      normalizedEmailVerified,
+    );
+
+    console.log(
+      "Phone Verified:",
+      normalizedPhoneVerified,
     );
 
     // ======================================================
@@ -525,11 +641,11 @@ exports.createOrUpdateUser = async (req, res) => {
 
     if (!user) {
       console.log(
-        "User not found in MongoDB."
+        "User not found in MongoDB.",
       );
 
       console.log(
-        "Creating new Firebase user..."
+        "Creating new Firebase user...",
       );
 
       // ----------------------------------------------------
@@ -550,6 +666,45 @@ exports.createOrUpdateUser = async (req, res) => {
       }
 
       // ----------------------------------------------------
+      // Check duplicate username
+      // ----------------------------------------------------
+
+      if (normalizedUsername) {
+        const usernameUser =
+          await User.findOne({
+            username: normalizedUsername,
+          });
+
+        if (usernameUser) {
+          return res.status(409).json({
+            success: false,
+            message:
+              "This username is already registered.",
+          });
+        }
+      }
+
+      // ----------------------------------------------------
+      // Check duplicate phone
+      // ----------------------------------------------------
+
+      if (normalizedPhoneNumber) {
+        const phoneUser =
+          await User.findOne({
+            phoneNumber:
+              normalizedPhoneNumber,
+          });
+
+        if (phoneUser) {
+          return res.status(409).json({
+            success: false,
+            message:
+              "This phone number is already registered.",
+          });
+        }
+      }
+
+      // ----------------------------------------------------
       // Create MongoDB user
       // ----------------------------------------------------
 
@@ -557,34 +712,44 @@ exports.createOrUpdateUser = async (req, res) => {
         firebaseUid:
           normalizedFirebaseUid,
 
+        authProvider:
+          normalizedAuthProvider,
+
         fullName:
           normalizedFullName,
 
         username:
-          username
-            ? String(username).trim().toLowerCase()
-            : undefined,
+          normalizedUsername || undefined,
 
         email:
           normalizedEmail,
 
-        emailVerified:
-          Boolean(emailVerified),
-
         phoneNumber:
-          normalizedPhoneNumber,
+          normalizedPhoneNumber || undefined,
 
-        photoURL:
-          normalizedPhotoURL,
+        profileImage:
+          normalizedProfileImage,
+
+        referralCode:
+          normalizedReferralCode,
+
+        referredBy:
+          normalizedReferredBy,
+
+        emailVerified:
+          normalizedEmailVerified,
+
+        phoneVerified:
+          normalizedPhoneVerified,
 
         firebaseCreatedAt:
           parseFirebaseDate(
-            firebaseCreatedAt
+            firebaseCreatedAt,
           ),
 
         firebaseLastSignInAt:
           parseFirebaseDate(
-            firebaseLastSignInAt
+            firebaseLastSignInAt,
           ),
 
         isActive: true,
@@ -595,31 +760,32 @@ exports.createOrUpdateUser = async (req, res) => {
       await user.save();
 
       console.log(
-        "========================================"
+        "========================================",
       );
 
       console.log(
-        "FIREBASE USER CREATED IN MONGODB"
+        "FIREBASE USER CREATED IN MONGODB",
       );
 
       console.log(
         "MongoDB ID:",
-        user._id.toString()
+        user._id.toString(),
       );
 
       console.log(
         "Firebase UID:",
-        user.firebaseUid
+        user.firebaseUid,
       );
 
       console.log(
-        "========================================"
+        "========================================",
       );
 
       return res.status(201).json({
         success: true,
         message:
           "Firebase user created in MongoDB successfully.",
+        isNewUser: true,
         user,
       });
     }
@@ -637,15 +803,80 @@ exports.createOrUpdateUser = async (req, res) => {
     }
 
     // ======================================================
+    // DUPLICATE EMAIL CHECK
+    // ======================================================
+
+    const emailUser =
+      await User.findOne({
+        email: normalizedEmail,
+        _id: {
+          $ne: user._id,
+        },
+      });
+
+    if (emailUser) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "This email is already associated with another user.",
+      });
+    }
+
+    // ======================================================
+    // DUPLICATE USERNAME CHECK
+    // ======================================================
+
+    if (normalizedUsername) {
+      const usernameUser =
+        await User.findOne({
+          username: normalizedUsername,
+          _id: {
+            $ne: user._id,
+          },
+        });
+
+      if (usernameUser) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "This username is already registered.",
+        });
+      }
+    }
+
+    // ======================================================
+    // DUPLICATE PHONE CHECK
+    // ======================================================
+
+    if (normalizedPhoneNumber) {
+      const phoneUser =
+        await User.findOne({
+          phoneNumber:
+            normalizedPhoneNumber,
+          _id: {
+            $ne: user._id,
+          },
+        });
+
+      if (phoneUser) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "This phone number is already registered.",
+        });
+      }
+    }
+
+    // ======================================================
     // UPDATE EXISTING USER
     // ======================================================
 
     console.log(
-      "User found in MongoDB."
+      "User found in MongoDB.",
     );
 
     console.log(
-      "Updating Firebase user information..."
+      "Updating Firebase user information...",
     );
 
     user.fullName =
@@ -655,18 +886,44 @@ exports.createOrUpdateUser = async (req, res) => {
       normalizedEmail;
 
     user.emailVerified =
-      Boolean(emailVerified);
+      normalizedEmailVerified;
 
-    user.phoneNumber =
-      normalizedPhoneNumber;
+    if (normalizedPhoneNumber) {
+      user.phoneNumber =
+        normalizedPhoneNumber;
+    }
 
-    user.profileImage =
-      normalizedProfileImage;
+    if (normalizedProfileImage) {
+      user.profileImage =
+        normalizedProfileImage;
+    }
+
+    if (normalizedUsername) {
+      user.username =
+        normalizedUsername;
+    }
+
+    if (normalizedReferralCode) {
+      user.referralCode =
+        normalizedReferralCode;
+    }
+
+    if (normalizedReferredBy) {
+      user.referredBy =
+        normalizedReferredBy;
+    }
+
+    if (normalizedPhoneVerified) {
+      user.phoneVerified = true;
+    }
+
+    user.authProvider =
+      normalizedAuthProvider;
 
     if (firebaseCreatedAt) {
       const createdAt =
         parseFirebaseDate(
-          firebaseCreatedAt
+          firebaseCreatedAt,
         );
 
       if (createdAt) {
@@ -678,7 +935,7 @@ exports.createOrUpdateUser = async (req, res) => {
     if (firebaseLastSignInAt) {
       const lastSignInAt =
         parseFirebaseDate(
-          firebaseLastSignInAt
+          firebaseLastSignInAt,
         );
 
       if (lastSignInAt) {
@@ -690,71 +947,68 @@ exports.createOrUpdateUser = async (req, res) => {
     await user.save();
 
     console.log(
-      "========================================"
+      "========================================",
     );
 
     console.log(
-      "FIREBASE USER UPDATED IN MONGODB"
+      "FIREBASE USER UPDATED IN MONGODB",
     );
 
     console.log(
       "MongoDB ID:",
-      user._id.toString()
+      user._id.toString(),
     );
 
     console.log(
       "Firebase UID:",
-      user.firebaseUid
+      user.firebaseUid,
     );
 
     console.log(
-      "========================================"
+      "========================================",
     );
 
     return res.status(200).json({
       success: true,
       message:
         "Firebase user updated in MongoDB successfully.",
+      isNewUser: false,
       user,
     });
   } catch (error) {
     console.error("");
     console.error(
-      "========================================"
+      "========================================",
     );
 
     console.error(
-      "CREATE / UPDATE FIREBASE USER ERROR"
+      "CREATE / UPDATE FIREBASE USER ERROR",
     );
 
     console.error(
-      "========================================"
+      "========================================",
     );
 
     console.error(
       "Message:",
-      error.message
+      error.message,
     );
 
     console.error(
       "Stack:",
-      error.stack
+      error.stack,
     );
-
-    // ======================================================
-    // Duplicate Key
-    // ======================================================
 
     if (error.code === 11000) {
       console.error(
         "Duplicate Key:",
-        error.keyValue
+        error.keyValue,
       );
 
       return res.status(409).json({
         success: false,
         message:
-          "A Firebase user with this UID or email already exists.",
+          "A Firebase user with this UID, email, username, or phone number already exists.",
         error:
           process.env.NODE_ENV ===
           "development"
@@ -763,19 +1017,15 @@ exports.createOrUpdateUser = async (req, res) => {
       });
     }
 
-    // ======================================================
-    // Validation Error
-    // ======================================================
-
     if (
       error.name ===
       "ValidationError"
     ) {
       const validationErrors =
         Object.values(
-          error.errors
+          error.errors,
         ).map(
-          (item) => item.message
+          (item) => item.message,
         );
 
       return res.status(400).json({
@@ -786,10 +1036,6 @@ exports.createOrUpdateUser = async (req, res) => {
           validationErrors,
       });
     }
-
-    // ======================================================
-    // Server Error
-    // ======================================================
 
     return res.status(500).json({
       success: false,
