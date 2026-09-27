@@ -1,4 +1,6 @@
-// src/config/firebaseAdmin.js
+// ==========================================================
+// AiTradeX Firebase Admin Configuration
+// ==========================================================
 
 require("dotenv").config();
 
@@ -14,44 +16,68 @@ const {
 } = require("firebase-admin/auth");
 
 // ==========================================================
-// FIREBASE ADMIN CONFIGURATION
+// ENVIRONMENT VARIABLES
 // ==========================================================
 
-const projectId = process.env.FIREBASE_PROJECT_ID;
-const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+const projectId = String(
+  process.env.FIREBASE_PROJECT_ID || "",
+).trim();
 
-const privateKey = process.env.FIREBASE_PRIVATE_KEY
-  ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n")
-  : null;
+const clientEmail = String(
+  process.env.FIREBASE_CLIENT_EMAIL || "",
+).trim();
+
+const privateKeyRaw =
+  process.env.FIREBASE_PRIVATE_KEY || "";
+
+const privateKey = privateKeyRaw
+  ? privateKeyRaw.replace(/\\n/g, "\n")
+  : "";
 
 // ==========================================================
-// VALIDATE ENVIRONMENT VARIABLES
+// VALIDATE CONFIGURATION
 // ==========================================================
 
 const missingVariables = [];
 
 if (!projectId) {
-  missingVariables.push("FIREBASE_PROJECT_ID");
+  missingVariables.push(
+    "FIREBASE_PROJECT_ID",
+  );
 }
 
 if (!clientEmail) {
-  missingVariables.push("FIREBASE_CLIENT_EMAIL");
+  missingVariables.push(
+    "FIREBASE_CLIENT_EMAIL",
+  );
 }
 
 if (!privateKey) {
-  missingVariables.push("FIREBASE_PRIVATE_KEY");
+  missingVariables.push(
+    "FIREBASE_PRIVATE_KEY",
+  );
 }
 
 if (missingVariables.length > 0) {
   console.error("");
-  console.error("========================================");
-  console.error("❌ FIREBASE CONFIGURATION ERROR");
-  console.error("========================================");
+  console.error(
+    "========================================",
+  );
+  console.error(
+    "❌ FIREBASE CONFIGURATION ERROR",
+  );
+  console.error(
+    "========================================",
+  );
+
   console.error(
     "Missing variables:",
     missingVariables.join(", "),
   );
-  console.error("========================================");
+
+  console.error(
+    "========================================",
+  );
   console.error("");
 
   throw new Error(
@@ -70,11 +96,22 @@ try {
     firebaseApp = getApp();
 
     console.log("");
-    console.log("========================================");
-    console.log("🔥 Firebase Admin Already Initialized");
-    console.log("========================================");
-    console.log("📦 Project:", projectId);
-    console.log("========================================");
+    console.log(
+      "========================================",
+    );
+    console.log(
+      "🔥 Firebase Admin Already Initialized",
+    );
+    console.log(
+      "========================================",
+    );
+    console.log(
+      "📦 Project:",
+      projectId,
+    );
+    console.log(
+      "========================================",
+    );
     console.log("");
   } else {
     firebaseApp = initializeApp({
@@ -86,20 +123,42 @@ try {
     });
 
     console.log("");
-    console.log("========================================");
-    console.log("🔥 Firebase Admin Initialized");
-    console.log("========================================");
-    console.log("📦 Project:", projectId);
-    console.log("========================================");
+    console.log(
+      "========================================",
+    );
+    console.log(
+      "🔥 Firebase Admin Initialized",
+    );
+    console.log(
+      "========================================",
+    );
+    console.log(
+      "📦 Project:",
+      projectId,
+    );
+    console.log(
+      "========================================",
+    );
     console.log("");
   }
 } catch (error) {
   console.error("");
-  console.error("========================================");
-  console.error("❌ FIREBASE ADMIN INITIALIZATION FAILED");
-  console.error("========================================");
-  console.error("Message:", error.message);
-  console.error("========================================");
+  console.error(
+    "========================================",
+  );
+  console.error(
+    "❌ FIREBASE ADMIN INITIALIZATION FAILED",
+  );
+  console.error(
+    "========================================",
+  );
+  console.error(
+    "Message:",
+    error.message,
+  );
+  console.error(
+    "========================================",
+  );
   console.error("");
 
   throw error;
@@ -109,7 +168,9 @@ try {
 // FIREBASE AUTH
 // ==========================================================
 
-const firebaseAuth = getAuth(firebaseApp);
+const firebaseAuth = getAuth(
+  firebaseApp,
+);
 
 // ==========================================================
 // EXPORTS

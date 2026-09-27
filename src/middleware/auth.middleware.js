@@ -1,298 +1,389 @@
-const { getAuth } = require("firebase-admin/auth");
+// ==========================================================
+// AiTradeX Firebase Authentication Middleware
+// ==========================================================
 
-const firebaseApp = require("../config/firebaseAdmin");
+const {
+  firebaseAuth,
+} = require("../config/firebaseAdmin");
 
-/**
- * ==========================================================
- * AiTradeX Firebase Authentication Middleware
- * ==========================================================
- *
- * Responsibilities:
- * 1. Read Authorization header.
- * 2. Validate Bearer token format.
- * 3. Verify Firebase ID token.
- * 4. Attach decoded Firebase user to request.
- * 5. Continue to protected route exactly once.
- *
- * Request objects populated:
- *   req.user
- *   req.firebaseUser
- *   req.auth
- *
- * All three point to the same Firebase decoded token.
- * ==========================================================
- */
+// ==========================================================
+// FIREBASE AUTH MIDDLEWARE
+// ==========================================================
 
-/**
- * Get Firebase UID safely from the request.
- *
- * This helper is also useful for controllers that support
- * multiple authentication request properties.
- */
-function getFirebaseUid(req) {
-  return (
-    req?.user?.uid ||
-    req?.firebaseUser?.uid ||
-    req?.auth?.uid ||
-    null
-  );
-}
-
-/**
- * Firebase Authentication Middleware
- */
-const authMiddleware = async (req, res, next) => {
+const authMiddleware = async (
+  req,
+  res,
+  next,
+) => {
   try {
     console.log("");
-    console.log("========================================");
-    console.log("🔐 FIREBASE AUTH MIDDLEWARE");
-    console.log("========================================");
-
-    // ========================================================
-    // 1. GET AUTHORIZATION HEADER
-    // ========================================================
-
-    const authorization = req.headers?.authorization;
-
-    if (!authorization) {
-      console.log("❌ Authorization header missing");
-      console.log("========================================");
-
-      return res.status(401).json({
-        success: false,
-        message: "Authorization token is required.",
-        code: "AUTHORIZATION_HEADER_MISSING",
-      });
-    }
-
-    // ========================================================
-    // 2. CHECK BEARER FORMAT
-    // ========================================================
-
-    if (!authorization.startsWith("Bearer ")) {
-      console.log("❌ Invalid Authorization header format");
-      console.log("Authorization must start with: Bearer");
-      console.log("========================================");
-
-      return res.status(401).json({
-        success: false,
-        message: "Invalid authorization format.",
-        code: "INVALID_AUTHORIZATION_FORMAT",
-      });
-    }
-
-    // ========================================================
-    // 3. EXTRACT FIREBASE ID TOKEN
-    // ========================================================
-
-    const idToken = authorization.substring(7).trim();
-
-    if (!idToken) {
-      console.log("❌ Firebase ID token is empty");
-      console.log("========================================");
-
-      return res.status(401).json({
-        success: false,
-        message: "Firebase ID token is required.",
-        code: "TOKEN_MISSING",
-      });
-    }
-
-    console.log("Firebase ID token received: true");
     console.log(
-      "Token length:",
-      idToken.length
+      "========================================",
+    );
+    console.log(
+      "🔐 FIREBASE AUTH MIDDLEWARE",
+    );
+    console.log(
+      "========================================",
     );
 
-    // ========================================================
-    // 4. GET FIREBASE AUTH INSTANCE
-    // ========================================================
+    // ======================================================
+    // 1. GET AUTHORIZATION HEADER
+    // ======================================================
 
-    if (!firebaseApp) {
-      console.error("❌ Firebase Admin app is not initialized");
-      console.error("========================================");
+    const authorization =
+      req.headers?.authorization;
+
+    if (
+      !authorization ||
+      typeof authorization !== "string"
+    ) {
+      console.log(
+        "❌ Authorization header missing",
+      );
+
+      console.log(
+        "========================================",
+      );
+
+      return res.status(401).json({
+        success: false,
+        message:
+          "Authorization token is required.",
+        code:
+          "AUTHORIZATION_HEADER_MISSING",
+      });
+    }
+
+    console.log(
+      "Authorization header received: true",
+    );
+
+    // ======================================================
+    // 2. VALIDATE BEARER FORMAT
+    // ======================================================
+
+    const parts =
+      authorization.trim().split(/\s+/);
+
+    if (
+      parts.length !== 2 ||
+      parts[0].toLowerCase() !== "bearer"
+    ) {
+      console.log(
+        "❌ Invalid Authorization header format",
+      );
+
+      console.log(
+        "========================================",
+      );
+
+      return res.status(401).json({
+        success: false,
+        message:
+          "Invalid authorization format.",
+        code:
+          "INVALID_AUTHORIZATION_FORMAT",
+      });
+    }
+
+    // ======================================================
+    // 3. EXTRACT TOKEN
+    // ======================================================
+
+    const idToken = parts[1].trim();
+
+    if (!idToken) {
+      console.log(
+        "❌ Firebase ID token is empty",
+      );
+
+      console.log(
+        "========================================",
+      );
+
+      return res.status(401).json({
+        success: false,
+        message:
+          "Firebase ID token is required.",
+        code:
+          "TOKEN_MISSING",
+      });
+    }
+
+    console.log(
+      "Firebase ID token received: true",
+    );
+
+    console.log(
+      "Token length:",
+      idToken.length,
+    );
+
+    // ======================================================
+    // 4. CHECK FIREBASE ADMIN AUTH
+    // ======================================================
+
+    if (!firebaseAuth) {
+      console.error(
+        "❌ Firebase Admin Auth is not initialized",
+      );
+
+      console.error(
+        "========================================",
+      );
 
       return res.status(500).json({
         success: false,
-        message: "Firebase authentication service is not initialized.",
-        code: "FIREBASE_NOT_INITIALIZED",
+        message:
+          "Firebase authentication service is not initialized.",
+        code:
+          "FIREBASE_NOT_INITIALIZED",
       });
     }
 
-    const auth = getAuth(firebaseApp);
-
-    // ========================================================
+    // ======================================================
     // 5. VERIFY FIREBASE ID TOKEN
-    // ========================================================
+    // ======================================================
 
-    const decodedToken = await auth.verifyIdToken(idToken);
+    let decodedToken;
 
-    // ========================================================
+    try {
+      decodedToken =
+        await firebaseAuth.verifyIdToken(
+          idToken,
+        );
+    } catch (firebaseError) {
+      console.error("");
+      console.error(
+        "========================================",
+      );
+      console.error(
+        "❌ FIREBASE TOKEN VERIFICATION FAILED",
+      );
+      console.error(
+        "========================================",
+      );
+
+      console.error(
+        "Firebase Error Code:",
+        firebaseError?.code ||
+          "N/A",
+      );
+
+      console.error(
+        "Firebase Error Name:",
+        firebaseError?.name ||
+          "N/A",
+      );
+
+      console.error(
+        "Firebase Error Message:",
+        firebaseError?.message ||
+          "Unknown error",
+      );
+
+      console.error(
+        "========================================",
+      );
+
+      if (
+        firebaseError?.code ===
+        "auth/id-token-expired"
+      ) {
+        return res.status(401).json({
+          success: false,
+          message:
+            "Firebase authentication token has expired.",
+          code:
+            "TOKEN_EXPIRED",
+        });
+      }
+
+      if (
+        firebaseError?.code ===
+        "auth/id-token-revoked"
+      ) {
+        return res.status(401).json({
+          success: false,
+          message:
+            "Firebase authentication token has been revoked.",
+          code:
+            "TOKEN_REVOKED",
+        });
+      }
+
+      if (
+        firebaseError?.code ===
+          "auth/argument-error" ||
+        firebaseError?.code ===
+          "auth/invalid-id-token"
+      ) {
+        return res.status(401).json({
+          success: false,
+          message:
+            "Invalid Firebase authentication token.",
+          code:
+            "INVALID_TOKEN",
+        });
+      }
+
+      return res.status(401).json({
+        success: false,
+        message:
+          "Invalid or expired Firebase authentication token.",
+        code:
+          "AUTHENTICATION_FAILED",
+      });
+    }
+
+    // ======================================================
     // 6. VALIDATE DECODED TOKEN
-    // ========================================================
+    // ======================================================
 
-    if (!decodedToken) {
+    if (
+      !decodedToken ||
+      !decodedToken.uid
+    ) {
       console.log(
-        "❌ Firebase token verification returned empty"
+        "❌ Firebase UID missing from decoded token",
       );
-      console.log("========================================");
+
+      console.log(
+        "========================================",
+      );
 
       return res.status(401).json({
         success: false,
-        message: "Invalid Firebase authentication token.",
-        code: "INVALID_TOKEN",
+        message:
+          "Firebase UID is missing.",
+        code:
+          "UID_MISSING",
       });
     }
 
-    if (!decodedToken.uid) {
-      console.log(
-        "❌ Firebase UID missing from decoded token"
-      );
-      console.log("========================================");
-
-      return res.status(401).json({
-        success: false,
-        message: "Firebase UID is missing.",
-        code: "UID_MISSING",
-      });
-    }
-
-    // ========================================================
-    // 7. ATTACH FIREBASE USER TO REQUEST
-    // ========================================================
+    // ======================================================
+    // 7. ATTACH USER TO REQUEST
+    // ======================================================
 
     req.user = decodedToken;
-    req.firebaseUser = decodedToken;
+
+    req.firebaseUser =
+      decodedToken;
+
     req.auth = decodedToken;
 
-    // ========================================================
-    // 8. GET UID
-    // ========================================================
+    req.userId =
+      decodedToken.uid;
 
-    const firebaseUid = getFirebaseUid(req);
+    // ======================================================
+    // 8. SUCCESS LOG
+    // ======================================================
 
-    if (!firebaseUid) {
-      console.log(
-        "❌ Unable to extract Firebase UID from request"
-      );
-      console.log("========================================");
+    console.log("");
+    console.log(
+      "========================================",
+    );
+    console.log(
+      "✅ FIREBASE TOKEN VERIFIED",
+    );
+    console.log(
+      "========================================",
+    );
 
-      return res.status(401).json({
-        success: false,
-        message: "Firebase UID could not be determined.",
-        code: "UID_EXTRACTION_FAILED",
-      });
-    }
+    console.log(
+      "Firebase UID:",
+      decodedToken.uid,
+    );
 
-    // ========================================================
-    // 9. SUCCESS LOG
-    // ========================================================
-
-    console.log("✅ Firebase token verified");
-    console.log("Firebase UID:", firebaseUid);
     console.log(
       "Email:",
-      decodedToken.email || "N/A"
-    );
-    console.log(
-      "Email verified:",
-      decodedToken.email_verified === true
-    );
-    console.log(
-      "Firebase provider:",
-      decodedToken.firebase?.sign_in_provider || "N/A"
+      decodedToken.email ||
+        "N/A",
     );
 
-    console.log("========================================");
-    console.log("✅ FIREBASE AUTH SUCCESS");
-    console.log("========================================");
+    console.log(
+      "Email Verified:",
+      decodedToken.email_verified ===
+        true,
+    );
+
+    console.log(
+      "Provider:",
+      decodedToken.firebase
+        ?.sign_in_provider ||
+        "N/A",
+    );
+
+    console.log(
+      "Issuer:",
+      decodedToken.iss ||
+        "N/A",
+    );
+
+    console.log(
+      "Audience:",
+      decodedToken.aud ||
+        "N/A",
+    );
+
+    console.log(
+      "========================================",
+    );
+    console.log(
+      "✅ FIREBASE AUTH SUCCESS",
+    );
+    console.log(
+      "========================================",
+    );
     console.log("");
 
-    // ========================================================
-    // 10. CONTINUE TO PROTECTED ROUTE
-    // IMPORTANT:
-    // next() MUST ONLY BE CALLED ONCE.
-    // ========================================================
+    // ======================================================
+    // 9. CONTINUE
+    // ======================================================
 
     return next();
   } catch (error) {
     console.error("");
-    console.error("========================================");
-    console.error("❌ FIREBASE TOKEN VERIFICATION FAILED");
-    console.error("========================================");
-    console.error("Code:", error?.code || "N/A");
-    console.error("Name:", error?.name || "N/A");
+    console.error(
+      "========================================",
+    );
+    console.error(
+      "❌ FIREBASE AUTH MIDDLEWARE ERROR",
+    );
+    console.error(
+      "========================================",
+    );
+
+    console.error(
+      "Code:",
+      error?.code ||
+        "N/A",
+    );
+
     console.error(
       "Message:",
-      error?.message || "Unknown error"
+      error?.message ||
+        "Unknown error",
     );
-    console.error("========================================");
-    console.error("");
 
-    // ========================================================
-    // TOKEN EXPIRED
-    // ========================================================
-
-    if (error?.code === "auth/id-token-expired") {
-      return res.status(401).json({
-        success: false,
-        message: "Firebase authentication token has expired.",
-        code: "TOKEN_EXPIRED",
-      });
-    }
-
-    // ========================================================
-    // TOKEN REVOKED
-    // ========================================================
-
-    if (error?.code === "auth/id-token-revoked") {
-      return res.status(401).json({
-        success: false,
-        message: "Firebase authentication token has been revoked.",
-        code: "TOKEN_REVOKED",
-      });
-    }
-
-    // ========================================================
-    // INVALID TOKEN
-    // ========================================================
-
-    if (
-      error?.code === "auth/argument-error" ||
-      error?.code === "auth/invalid-id-token"
-    ) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid Firebase authentication token.",
-        code: "INVALID_TOKEN",
-      });
-    }
-
-    // ========================================================
-    // FIREBASE AUTH ERROR
-    // ========================================================
-
-    if (
-      error?.code === "auth/invalid-credential" ||
-      error?.code === "auth/user-disabled"
-    ) {
-      return res.status(401).json({
-        success: false,
-        message: "Firebase authentication failed.",
-        code: "AUTHENTICATION_FAILED",
-      });
-    }
-
-    // ========================================================
-    // DEFAULT AUTH ERROR
-    // ========================================================
+    console.error(
+      "========================================",
+    );
 
     return res.status(401).json({
       success: false,
-      message: "Invalid or expired Firebase authentication token.",
-      code: "AUTHENTICATION_FAILED",
+      message:
+        "Invalid or expired Firebase authentication token.",
+      code:
+        "AUTHENTICATION_FAILED",
     });
   }
 };
 
-module.exports = authMiddleware;
+// ==========================================================
+// EXPORT
+// ==========================================================
+
+module.exports =
+  authMiddleware;

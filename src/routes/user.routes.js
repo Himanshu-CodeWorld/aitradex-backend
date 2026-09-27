@@ -10,21 +10,37 @@ const {
   deleteUser,
 } = require("../controllers/user.controller");
 
-// Create / update user
-router.post("/", authMiddleware, createOrUpdateUser);
+// ==========================================================
+// CREATE / UPDATE USER
+// POST /api/users
+// ==========================================================
 
-// Get user
+router.post(
+  "/",
+  authMiddleware,
+  createOrUpdateUser,
+);
+
+// ==========================================================
+// GET USER
+// GET /api/users/firebase/:firebaseUid
+// ==========================================================
+
 router.get(
   "/firebase/:firebaseUid",
   authMiddleware,
-  getUserByFirebaseUid
+  getUserByFirebaseUid,
 );
 
-// Delete user
+// ==========================================================
+// DELETE USER
+// DELETE /api/users/delete
+// ==========================================================
+
 router.delete(
   "/delete",
   authMiddleware,
-  deleteUser
+  deleteUser,
 );
 
 module.exports = router;
