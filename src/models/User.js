@@ -14,6 +14,14 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
 
+    authProvider: {
+      type: String,
+      enum: ["password", "google", "firebase"],
+      default: "firebase",
+      index: true,
+      trim: true,
+    },
+
     // ========================================================
     // PROFILE
     // ========================================================
@@ -24,10 +32,13 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
 
+    // Google users may not have completed the app username step yet.
+    // Signup users can still provide a username.
     username: {
       type: String,
-      required: true,
+      required: false,
       unique: true,
+      sparse: true,
       index: true,
       lowercase: true,
       trim: true,
@@ -44,10 +55,13 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
 
+    // Phone is optional for Google login.
+    // Your phone-OTP signup flow still validates and stores it when provided.
     phoneNumber: {
       type: String,
-      required: true,
+      required: false,
       unique: true,
+      sparse: true,
       index: true,
       trim: true,
     },
@@ -108,21 +122,18 @@ const userSchema = new mongoose.Schema(
 
 userSchema.pre("save", function (next) {
   if (this.email) {
-    this.email = this.email
-      .toLowerCase()
-      .trim();
+    this.email = this.email.toLowerCase().trim();
   }
 
   if (this.username) {
-    this.username = this.username
-      .toLowerCase()
-      .trim();
+    this.username = this.username.toLowerCase().trim();
+  }
+
+  if (this.phoneNumber) {
+    this.phoneNumber = this.phoneNumber.trim();
   }
 
   next();
 });
 
-module.exports = mongoose.model(
-  "User",
-  userSchema,
-);
+module.exports = mongoose.model("User", userSchema);

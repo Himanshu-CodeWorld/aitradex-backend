@@ -303,9 +303,10 @@ console.log("========================================");
 // /api/auth
 //
 // Examples:
-// POST /api/auth/send-otp
-// POST /api/auth/verify-otp
-// POST /api/auth/resend-otp
+// POST /api/auth/google
+// POST /api/auth/send-phone-otp
+// POST /api/auth/verify-phone-otp
+// POST /api/auth/resend-phone-otp
 //
 // ==========================================================
 
@@ -428,6 +429,10 @@ console.log("========================================");
 
 console.log(
   "🔐 Auth        : /api/auth"
+);
+
+console.log(
+  "🔑 Google Login: POST /api/auth/google"
 );
 
 console.log(

@@ -1,5 +1,6 @@
 const User = require("../models/User");
 const phoneOtpService = require("../services/phoneOtpService");
+const { firebaseAuth } = require("../config/firebaseAdmin");
 
 // ==========================================================
 // Normalize Phone Number
@@ -61,6 +62,327 @@ const parseFirebaseDate = (value) => {
   return date;
 };
 
+
+// ==========================================================
+// GOOGLE LOGIN
+//
+// POST /api/auth/google
+//
+// Flutter sends the Firebase ID token:
+//
+// Authorization: Bearer <Firebase ID Token>
+//
+// The backend NEVER trusts the email/name sent by Flutter.
+// Firebase Admin verifies the ID token first.
+// ==========================================================
+
+const getBearerToken = (req) => {
+  const authorization = req.headers.authorization;
+
+  if (!authorization || typeof authorization !== "string") {
+    return null;
+  }
+
+  if (!authorization.startsWith("Bearer ")) {
+    return null;
+  }
+
+  const token = authorization.substring(7).trim();
+
+  return token || null;
+};
+
+const createGoogleUsername = async (email, firebaseUid) => {
+  const emailName = String(email || "user")
+    .split("@")[0]
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, "")
+    .replace(/^_+|_+$/g, "");
+
+  let base = emailName || "user";
+
+  if (base.length < 3) {
+    base = `user${base}`;
+  }
+
+  base = base.substring(0, 13);
+
+  const uidSuffix = String(firebaseUid || "")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .substring(0, 6)
+    .toLowerCase();
+
+  let username = `${base}_${uidSuffix}`.substring(0, 20);
+
+  if (username.length < 3) {
+    username = `user_${uidSuffix}`.substring(0, 20);
+  }
+
+  let existing = await User.findOne({ username });
+
+  if (!existing) {
+    return username;
+  }
+
+  // Extremely unlikely collision fallback.
+  for (let index = 1; index <= 99; index += 1) {
+    const suffix = `${uidSuffix}${index}`;
+    const candidate =
+      `${base.substring(0, Math.max(3, 20 - suffix.length - 1))}_${suffix}`
+        .substring(0, 20);
+
+    existing = await User.findOne({
+      username: candidate,
+    });
+
+    if (!existing) {
+      return candidate;
+    }
+  }
+
+  throw new Error(
+    "Unable to generate a unique username for Google account.",
+  );
+};
+
+exports.googleLogin = async (req, res) => {
+  console.log("");
+  console.log("========================================");
+  console.log("GOOGLE LOGIN REQUEST");
+  console.log("========================================");
+
+  try {
+    // ========================================================
+    // GET FIREBASE ID TOKEN
+    // ========================================================
+
+    const idToken = getBearerToken(req);
+
+    if (!idToken) {
+      return res.status(401).json({
+        success: false,
+        message: "Firebase ID token is required.",
+      });
+    }
+
+    // ========================================================
+    // VERIFY TOKEN WITH FIREBASE ADMIN
+    // ========================================================
+
+    let decodedToken;
+
+    try {
+      decodedToken = await firebaseAuth.verifyIdToken(idToken);
+    } catch (firebaseError) {
+      console.error(
+        "Firebase token verification failed:",
+        firebaseError.message,
+      );
+
+      return res.status(401).json({
+        success: false,
+        message: "Invalid or expired Firebase ID token.",
+      });
+    }
+
+    const firebaseUid = String(decodedToken.uid || "").trim();
+    const email = String(decodedToken.email || "")
+      .trim()
+      .toLowerCase();
+
+    const fullName =
+      String(
+        decodedToken.name ||
+          decodedToken.email?.split("@")[0] ||
+          "AiTradeX User",
+      ).trim();
+
+    const profileImage =
+      typeof decodedToken.picture === "string"
+        ? decodedToken.picture.trim()
+        : "";
+
+    const emailVerified =
+      decodedToken.email_verified === true;
+
+    if (!firebaseUid) {
+      return res.status(401).json({
+        success: false,
+        message: "Firebase UID is missing.",
+      });
+    }
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Google account email is required.",
+      });
+    }
+
+    console.log("Firebase UID:", firebaseUid);
+    console.log("Email:", email);
+    console.log("Name:", fullName);
+    console.log("Email Verified:", emailVerified);
+
+    // ========================================================
+    // FIND USER BY FIREBASE UID
+    // ========================================================
+
+    let user = await User.findOne({
+      firebaseUid,
+    });
+
+    let isNewUser = false;
+
+    // ========================================================
+    // EXISTING USER
+    // ========================================================
+
+    if (user) {
+      if (user.isBlocked === true) {
+        return res.status(403).json({
+          success: false,
+          message: "This account has been blocked.",
+        });
+      }
+
+      user.fullName = fullName || user.fullName;
+      user.email = email;
+      user.profileImage = profileImage || user.profileImage;
+      user.emailVerified = emailVerified;
+      user.authProvider = "google";
+      user.firebaseLastSignInAt = new Date();
+
+      await user.save();
+
+      console.log("Existing Google user updated.");
+    } else {
+      // ======================================================
+      // CHECK EMAIL COLLISION
+      // ======================================================
+
+      const emailUser = await User.findOne({
+        email,
+      });
+
+      if (emailUser) {
+        // Do not silently attach a Google account to another
+        // Firebase UID. The accounts should be explicitly linked
+        // in Firebase if account linking is desired.
+        return res.status(409).json({
+          success: false,
+          message:
+            "An account with this email already exists. Please sign in using the existing authentication method.",
+        });
+      }
+
+      // ======================================================
+      // CREATE GOOGLE USER
+      // ======================================================
+
+      const username = await createGoogleUsername(
+        email,
+        firebaseUid,
+      );
+
+      isNewUser = true;
+
+      user = new User({
+        firebaseUid,
+        authProvider: "google",
+        fullName,
+        username,
+        email,
+        phoneNumber: undefined,
+        profileImage,
+        emailVerified,
+        phoneVerified: false,
+        firebaseCreatedAt:
+          decodedToken.auth_time
+            ? new Date(decodedToken.auth_time * 1000)
+            : new Date(),
+        firebaseLastSignInAt: new Date(),
+        isActive: true,
+        isBlocked: false,
+      });
+
+      await user.save();
+
+      console.log("New Google user created in MongoDB.");
+    }
+
+    // ========================================================
+    // RESPONSE
+    // ========================================================
+
+    return res.status(200).json({
+      success: true,
+      message: "Google login successful.",
+      isNewUser,
+      user: {
+        id: user._id,
+        firebaseUid: user.firebaseUid,
+        authProvider: user.authProvider,
+        fullName: user.fullName,
+        username: user.username || "",
+        email: user.email,
+        phoneNumber: user.phoneNumber || "",
+        profileImage: user.profileImage || "",
+        emailVerified: user.emailVerified,
+        phoneVerified: user.phoneVerified,
+        isActive: user.isActive,
+        isBlocked: user.isBlocked,
+        firebaseCreatedAt:
+          user.firebaseCreatedAt,
+        firebaseLastSignInAt:
+          user.firebaseLastSignInAt,
+      },
+    });
+  } catch (error) {
+    console.error("");
+    console.error("========================================");
+    console.error("GOOGLE LOGIN ERROR");
+    console.error("========================================");
+    console.error("Message:", error.message);
+    console.error("Stack:", error.stack);
+    console.error("========================================");
+
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "A user with this Firebase UID, email, username, or phone number already exists.",
+        error:
+          process.env.NODE_ENV === "development"
+            ? error.keyValue
+            : undefined,
+      });
+    }
+
+    if (error.name === "ValidationError") {
+      const validationErrors =
+        Object.values(error.errors).map(
+          (item) => item.message,
+        );
+
+      return res.status(400).json({
+        success: false,
+        message: "Google user validation failed.",
+        errors: validationErrors,
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: "Google login failed.",
+      error:
+        process.env.NODE_ENV === "development"
+          ? error.message
+          : undefined,
+    });
+  }
+};
+
 // ==========================================================
 // CREATE / UPDATE FIREBASE USER
 //
@@ -83,10 +405,15 @@ exports.createOrUpdateUser = async (req, res) => {
     const {
       firebaseUid,
       displayName,
+      fullName,
+      username,
       email,
       emailVerified,
       phoneNumber,
       photoURL,
+      profileImage,
+      phoneVerified,
+      authProvider,
       firebaseCreatedAt,
       firebaseLastSignInAt,
     } = req.body;
@@ -131,20 +458,29 @@ exports.createOrUpdateUser = async (req, res) => {
         .trim()
         .toLowerCase();
 
-    const normalizedDisplayName =
-      displayName
-        ? String(displayName).trim()
-        : "";
+    const normalizedFullName = String(
+      fullName || displayName || "",
+    ).trim();
 
     const normalizedPhoneNumber =
       phoneNumber
         ? normalizePhoneNumber(phoneNumber)
         : "";
 
-    const normalizedPhotoURL =
-      photoURL
-        ? String(photoURL).trim()
-        : "";
+    const normalizedProfileImage = String(
+      profileImage || photoURL || "",
+    ).trim();
+
+    // ======================================================
+    // Validate Full Name
+    // ======================================================
+
+    if (!normalizedFullName) {
+      return res.status(400).json({
+        success: false,
+        message: "Full name is required.",
+      });
+    }
 
     // ======================================================
     // Log Request
@@ -161,8 +497,8 @@ exports.createOrUpdateUser = async (req, res) => {
     );
 
     console.log(
-      "Display Name:",
-      normalizedDisplayName
+      "Full Name:",
+      normalizedFullName
     );
 
     console.log(
@@ -221,8 +557,13 @@ exports.createOrUpdateUser = async (req, res) => {
         firebaseUid:
           normalizedFirebaseUid,
 
-        displayName:
-          normalizedDisplayName,
+        fullName:
+          normalizedFullName,
+
+        username:
+          username
+            ? String(username).trim().toLowerCase()
+            : undefined,
 
         email:
           normalizedEmail,
@@ -307,8 +648,8 @@ exports.createOrUpdateUser = async (req, res) => {
       "Updating Firebase user information..."
     );
 
-    user.displayName =
-      normalizedDisplayName;
+    user.fullName =
+      normalizedFullName;
 
     user.email =
       normalizedEmail;
@@ -319,8 +660,8 @@ exports.createOrUpdateUser = async (req, res) => {
     user.phoneNumber =
       normalizedPhoneNumber;
 
-    user.photoURL =
-      normalizedPhotoURL;
+    user.profileImage =
+      normalizedProfileImage;
 
     if (firebaseCreatedAt) {
       const createdAt =
@@ -1294,6 +1635,9 @@ exports.resendPhoneOtp = async (req, res) => {
 // ==========================================================
 
 module.exports = {
+  googleLogin:
+    exports.googleLogin,
+
   createOrUpdateUser:
     exports.createOrUpdateUser,
 

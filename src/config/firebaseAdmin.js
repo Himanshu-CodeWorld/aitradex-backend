@@ -18,7 +18,6 @@ const {
 // ==========================================================
 
 const projectId = process.env.FIREBASE_PROJECT_ID;
-
 const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
 
 const privateKey = process.env.FIREBASE_PRIVATE_KEY
@@ -50,15 +49,13 @@ if (missingVariables.length > 0) {
   console.error("========================================");
   console.error(
     "Missing variables:",
-    missingVariables.join(", ")
+    missingVariables.join(", "),
   );
   console.error("========================================");
   console.error("");
 
   throw new Error(
-    `Missing Firebase environment variables: ${missingVariables.join(
-      ", "
-    )}`
+    `Missing Firebase environment variables: ${missingVariables.join(", ")}`,
   );
 }
 
@@ -69,10 +66,6 @@ if (missingVariables.length > 0) {
 let firebaseApp;
 
 try {
-  // --------------------------------------------------------
-  // Reuse existing Firebase Admin app
-  // --------------------------------------------------------
-
   if (getApps().length > 0) {
     firebaseApp = getApp();
 
@@ -84,15 +77,11 @@ try {
     console.log("========================================");
     console.log("");
   } else {
-    // ------------------------------------------------------
-    // Initialize Firebase Admin
-    // ------------------------------------------------------
-
     firebaseApp = initializeApp({
       credential: cert({
-        projectId: projectId,
-        clientEmail: clientEmail,
-        privateKey: privateKey,
+        projectId,
+        clientEmail,
+        privateKey,
       }),
     });
 

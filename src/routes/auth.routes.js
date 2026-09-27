@@ -3,6 +3,7 @@ const express = require("express");
 const router = express.Router();
 
 const {
+  googleLogin,
   sendPhoneOtp,
   verifyPhoneOtp,
   resendPhoneOtp,
@@ -16,6 +17,22 @@ console.log("");
 console.log("====================================");
 console.log("Auth Routes Loaded");
 console.log("====================================");
+
+// ==========================================================
+// GOOGLE LOGIN
+// POST /api/auth/google
+//
+// Flutter sends:
+// Authorization: Bearer <Firebase ID Token>
+//
+// Backend verifies the token with Firebase Admin,
+// then creates/updates the MongoDB user.
+// ==========================================================
+
+router.post(
+  "/google",
+  googleLogin,
+);
 
 // ==========================================================
 // SEND PHONE OTP
