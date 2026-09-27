@@ -16,8 +16,11 @@ const getBalance = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Coin balance retrieved successfully.",
+      balance: Number(data.balance) || 0,
+      amountInr: Number(data.amountInr) || 0,
       data: {
-        ...data,
+        balance: Number(data.balance) || 0,
+        amountInr: Number(data.amountInr) || 0,
         coinValueInr: coinService.COIN_RUPEE_VALUE,
         stockUnlockCost: coinService.STOCK_UNLOCK_COST,
       },
@@ -52,7 +55,14 @@ const getHistory = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Coin history retrieved successfully.",
-      data,
+      transactions: Array.isArray(data.transactions) ? data.transactions : [],
+      pagination: data.pagination,
+      data: {
+        transactions: Array.isArray(data.transactions)
+          ? data.transactions
+          : [],
+        pagination: data.pagination,
+      },
     });
   } catch (error) {
     console.error("GET COIN HISTORY ERROR:", error);
@@ -94,8 +104,10 @@ const unlockStock = async (req, res) => {
       message: data.charged
         ? "Stock intelligence unlocked for 100 Coins."
         : "Stock intelligence is already unlocked.",
+      balance: Number(data.balance) || 0,
       data: {
         ...data,
+        balance: Number(data.balance) || 0,
         coinValueInr: coinService.COIN_RUPEE_VALUE,
         stockUnlockCost: coinService.STOCK_UNLOCK_COST,
       },
@@ -152,6 +164,7 @@ const checkStockUnlock = async (req, res) => {
 
     return res.status(200).json({
       success: true,
+      unlocked: Boolean(data.unlocked),
       data,
     });
   } catch (error) {

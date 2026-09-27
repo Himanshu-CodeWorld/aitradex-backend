@@ -13,14 +13,22 @@ const COIN_RUPEE_VALUE = 1;
 const getOrCreateWallet = async (firebaseUid, options = {}) => {
   const { session = null } = options;
 
-  let wallet = await CoinWallet.findOne({ firebaseUid }).session(session);
+  const normalizedUid = String(firebaseUid || "").trim();
+
+  if (!normalizedUid) {
+    throw new Error("Firebase UID is required.");
+  }
+
+  let wallet = await CoinWallet.findOne({
+    firebaseUid: normalizedUid,
+  }).session(session);
 
   if (!wallet) {
     try {
       const created = await CoinWallet.create(
         [
           {
-            firebaseUid,
+            firebaseUid: normalizedUid,
             balance: 0,
           },
         ],
@@ -31,9 +39,9 @@ const getOrCreateWallet = async (firebaseUid, options = {}) => {
     } catch (error) {
       // Another request may have created the wallet concurrently.
       if (error.code === 11000) {
-        wallet = await CoinWallet.findOne({ firebaseUid }).session(
-          session
-        );
+        wallet = await CoinWallet.findOne({
+          firebaseUid: normalizedUid,
+        }).session(session);
       } else {
         throw error;
       }
@@ -46,9 +54,11 @@ const getOrCreateWallet = async (firebaseUid, options = {}) => {
 const getBalance = async (firebaseUid) => {
   const wallet = await getOrCreateWallet(firebaseUid);
 
+  const balance = Number(wallet.balance) || 0;
+
   return {
-    balance: wallet.balance,
-    amountInr: wallet.balance * COIN_RUPEE_VALUE,
+    balance,
+    amountInr: balance * COIN_RUPEE_VALUE,
   };
 };
 

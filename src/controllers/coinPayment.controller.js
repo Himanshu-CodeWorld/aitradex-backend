@@ -166,14 +166,16 @@ async function verifyPayment(req, res) {
     }
 
     if (purchase.status === "paid") {
-      const balance = await coinService.getBalance(firebaseUid);
+      const balanceData = await coinService.getBalance(firebaseUid);
 
       return res.status(200).json({
         success: true,
         message: "Coin payment was already verified.",
+        balance: Number(balanceData.balance) || 0,
         data: {
-          coinsAdded: purchase.coins,
-          balance,
+          coinsAdded: Number(purchase.coins) || 0,
+          balance: Number(balanceData.balance) || 0,
+          amountInr: Number(balanceData.amountInr) || 0,
           alreadyProcessed: true,
         },
       });
@@ -201,14 +203,16 @@ async function verifyPayment(req, res) {
       purchase.status = "paid";
       await purchase.save();
 
-      const balance = await coinService.getBalance(firebaseUid);
+      const balanceData = await coinService.getBalance(firebaseUid);
 
       return res.status(200).json({
         success: true,
         message: "Coin payment was already credited.",
+        balance: Number(balanceData.balance) || 0,
         data: {
-          coinsAdded: purchase.coins,
-          balance,
+          coinsAdded: Number(purchase.coins) || 0,
+          balance: Number(balanceData.balance) || 0,
+          amountInr: Number(balanceData.amountInr) || 0,
           alreadyProcessed: true,
         },
       });
@@ -227,16 +231,18 @@ async function verifyPayment(req, res) {
     purchase.status = "paid";
     await purchase.save();
 
+    const finalBalance = Number(
+      result?.balance ?? 0
+    );
+
     return res.status(200).json({
       success: true,
       message: `${purchase.coins} AiTradeX Coins added successfully.`,
+      balance: finalBalance,
       data: {
-        coinsAdded: purchase.coins,
-        balance:
-          result?.balance ??
-          result?.wallet?.balance ??
-          (await coinService.getBalance(firebaseUid)),
-        amountInr: purchase.amountInr,
+        coinsAdded: Number(purchase.coins) || 0,
+        balance: finalBalance,
+        amountInr: Number(purchase.amountInr) || 0,
         paymentId,
         orderId,
         alreadyProcessed: false,
