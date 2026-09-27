@@ -26,6 +26,7 @@ const aiRoutes = require("./src/routes/ai.routes");
 const upstoxRoutes = require("./src/upstox/upstox.routes");
 const coinRoutes = require("./src/routes/coin.routes");
 const coinPaymentRoutes = require("./src/routes/coinPayment.routes");
+const profileUploadRoutes = require("./src/routes/profileUpload.routes");
 
 // ==========================================================
 // APP INITIALIZATION
@@ -390,6 +391,26 @@ console.log(
   "✅ Upstox Routes Loaded"
 );
 
+// ==========================================================
+// PROFILE IMAGE UPLOAD ROUTES
+// ==========================================================
+//
+// POST /api/upload/profile
+//
+// Firebase ID token + multipart image.
+// Images are uploaded directly to Cloudinary.
+//
+// ==========================================================
+
+app.use(
+  "/api/upload",
+  profileUploadRoutes
+);
+
+console.log(
+  "✅ Profile Upload Routes Loaded"
+);
+
 /*
  * AiTradeX Coin System
  *
@@ -449,6 +470,10 @@ console.log(
 
 console.log(
   "👤 Users       : /api/users"
+);
+
+console.log(
+  "🖼️ Profile Image: POST /api/upload/profile"
 );
 
 console.log(
@@ -834,6 +859,10 @@ const startServer = async () => {
 
         console.log(
           "👤 Users      : /api/users"
+        );
+
+        console.log(
+          "🖼️ Profile Image: /api/upload/profile"
         );
 
         console.log(

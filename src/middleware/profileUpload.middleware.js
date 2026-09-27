@@ -1,16 +1,17 @@
 const multer = require("multer");
 const path = require("path");
-const fs = require("fs");
 
-const uploadDirectory = path.join(
-  process.cwd(),
-  "uploads",
-  "profile",
-);
-
-fs.mkdirSync(uploadDirectory, {
-  recursive: true,
-});
+// ============================================================
+// PROFILE IMAGE UPLOAD MIDDLEWARE
+// ============================================================
+//
+// Profile images are kept in memory and sent directly to
+// Cloudinary by the controller.
+//
+// IMPORTANT:
+// Do NOT use diskStorage here. Render's local filesystem is
+// ephemeral and should not be used for permanent user images.
+// ============================================================
 
 const allowedMimeTypes = new Set([
   "image/jpeg",
@@ -19,49 +20,61 @@ const allowedMimeTypes = new Set([
   "image/webp",
 ]);
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, uploadDirectory);
-  },
+const allowedExtensions = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+]);
 
-  filename: (_req, file, cb) => {
-    const extension =
-      path.extname(file.originalname).toLowerCase() || ".jpg";
+const fileFilter = (_req, file, cb) => {
+  console.log("");
+  console.log("========================================");
+  console.log("PROFILE IMAGE FILE FILTER");
+  console.log("========================================");
+  console.log("Field Name    :", file.fieldname);
+  console.log("Original Name :", file.originalname);
+  console.log("MIME Type     :", file.mimetype);
+  console.log("========================================");
 
-    const safeExtension =
-      [".jpg", ".jpeg", ".png", ".webp"].includes(extension)
-        ? extension
-        : ".jpg";
+  const mimeType =
+    String(file.mimetype || "").toLowerCase();
 
-    const filename =
-      `profile-${Date.now()}-${Math.round(Math.random() * 1e9)}${safeExtension}`;
+  const extension = path
+    .extname(file.originalname || "")
+    .toLowerCase();
 
-    cb(null, filename);
-  },
-});
+  if (allowedMimeTypes.has(mimeType)) {
+    return cb(null, true);
+  }
+
+  // Some mobile clients can report application/octet-stream.
+  if (
+    mimeType === "application/octet-stream" &&
+    allowedExtensions.has(extension)
+  ) {
+    return cb(null, true);
+  }
+
+  return cb(
+    new Error(
+      "Only JPG, JPEG, PNG, and WEBP profile images are allowed.",
+    ),
+    false,
+  );
+};
 
 const profileUpload = multer({
-  storage,
+  storage: multer.memoryStorage(),
 
   limits: {
     fileSize: 5 * 1024 * 1024,
     files: 1,
   },
 
-  fileFilter: (_req, file, cb) => {
-    if (!allowedMimeTypes.has(file.mimetype)) {
-      return cb(
-        new Error(
-          "Only JPG, JPEG, PNG, and WEBP profile images are allowed.",
-        ),
-      );
-    }
-
-    cb(null, true);
-  },
+  fileFilter,
 });
 
 module.exports = {
   profileUpload,
-  uploadDirectory,
 };
