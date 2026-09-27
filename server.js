@@ -24,6 +24,8 @@ const authRoutes = require("./src/routes/auth.routes");
 const userRoutes = require("./src/routes/user.routes");
 const aiRoutes = require("./src/routes/ai.routes");
 const upstoxRoutes = require("./src/upstox/upstox.routes");
+const coinRoutes = require("./src/routes/coin.routes");
+const coinPaymentRoutes = require("./src/routes/coinPayment.routes");
 
 // ==========================================================
 // APP INITIALIZATION
@@ -236,6 +238,18 @@ console.log(
   }`
 );
 
+console.log(
+  "🪙 Coins       : Enabled"
+);
+
+console.log(
+  "💰 Coin Value  : 1 Coin = ₹1"
+);
+
+console.log(
+  "🔓 Stock Unlock: 100 Coins"
+);
+
 console.log("========================================");
 console.log("");
 
@@ -264,6 +278,11 @@ app.get("/api/health", (req, res) => {
     status: "healthy",
     environment: NODE_ENV,
     database: "connected",
+    coinSystem: {
+      enabled: true,
+      coinValueInr: 1,
+      stockUnlockCost: 100,
+    },
     timestamp: new Date().toISOString(),
   });
 });
@@ -370,6 +389,35 @@ console.log(
   "✅ Upstox Routes Loaded"
 );
 
+/*
+ * AiTradeX Coin System
+ *
+ * GET  /api/coins/balance
+ * GET  /api/coins/history
+ * GET  /api/coins/stock/:symbol
+ * POST /api/coins/unlock-stock
+ *
+ * All coin routes are protected by Firebase authentication
+ * inside coin.routes.js.
+ */
+app.use(
+  "/api/coins",
+  coinRoutes
+);
+
+app.use(
+  "/api/coins/payment",
+  coinPaymentRoutes
+);
+
+console.log(
+  "✅ Coin Routes Loaded"
+);
+
+console.log(
+  "✅ Coin Payment Routes Loaded"
+);
+
 // ==========================================================
 // ROUTE INFORMATION
 // ==========================================================
@@ -400,6 +448,30 @@ console.log(
 
 console.log(
   "📊 Market Data : /api/upstox/market-data"
+);
+
+console.log(
+  "🪙 Coins       : /api/coins"
+);
+
+console.log(
+  "💰 Coin Balance: /api/coins/balance"
+);
+
+console.log(
+  "📜 Coin History: /api/coins/history"
+);
+
+console.log(
+  "🔓 Stock Unlock: /api/coins/unlock-stock"
+);
+
+console.log(
+  "💳 Coin Payment: /api/coins/payment/create-order"
+);
+
+console.log(
+  "✅ Coin Verify : /api/coins/payment/verify"
 );
 
 console.log("========================================");
@@ -760,7 +832,19 @@ const startServer = async () => {
         );
 
         console.log(
-          "📊 Market Data : /api/upstox/market-data"
+          `📊 Market Data : /api/upstox/market-data`
+        );
+
+        console.log(
+          "🪙 Coins       : /api/coins"
+        );
+
+        console.log(
+          "💰 Coin Balance: /api/coins/balance"
+        );
+
+        console.log(
+          "🔓 Stock Unlock: /api/coins/unlock-stock"
         );
 
         console.log(
