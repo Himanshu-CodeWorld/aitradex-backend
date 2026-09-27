@@ -28,14 +28,7 @@ function getRazorpay() {
   };
 }
 
-function getFirebaseUid(req) {
-  return (
-    req.user?.uid ||
-    req.user?.firebaseUid ||
-    req.firebaseUser?.uid ||
-    null
-  );
-}
+const firebaseUid = getFirebaseUid(req);
 
 function isValidSignature(orderId, paymentId, signature) {
   const secret = process.env.RAZORPAY_KEY_SECRET;

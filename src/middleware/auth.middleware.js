@@ -95,6 +95,10 @@ const authMiddleware = async (req, res, next) => {
     // ========================================================
 
     req.user = decodedToken;
+    req.firebaseUser = decodedToken;
+    req.auth = decodedToken;
+
+    next();
 
     // ========================================================
     // SUCCESS LOG
