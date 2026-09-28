@@ -18,6 +18,7 @@ const CoinTransactionSchema = new mongoose.Schema(
         "refund",
         "purchase",
         "adjustment",
+        "referral_bonus",
       ],
       index: true,
     },

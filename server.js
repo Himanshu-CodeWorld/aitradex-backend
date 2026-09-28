@@ -26,6 +26,7 @@ const aiRoutes = require("./src/routes/ai.routes");
 const upstoxRoutes = require("./src/upstox/upstox.routes");
 const coinRoutes = require("./src/routes/coin.routes");
 const coinPaymentRoutes = require("./src/routes/coinPayment.routes");
+const referralRoutes = require("./src/routes/referral.routes");
 const profileUploadRoutes = require("./src/routes/profileUpload.routes");
 
 // ==========================================================
@@ -251,6 +252,12 @@ console.log(
   "🔓 Stock Unlock: 100 Coins"
 );
 
+console.log(
+  `🎁 Referral Reward: ${
+    Number(process.env.REFERRAL_REWARD_COINS) || 100
+  } Coins`
+);
+
 console.log("========================================");
 console.log("");
 
@@ -432,6 +439,26 @@ app.use(
   coinPaymentRoutes
 );
 
+// ==========================================================
+// REFERRAL / INVITE ROUTES
+// ==========================================================
+//
+// GET  /api/referrals/me
+// GET  /api/referrals/validate/:code
+// POST /api/referrals/apply
+//
+// All referral routes require Firebase authentication.
+// ==========================================================
+
+app.use(
+  "/api/referrals",
+  referralRoutes
+);
+
+console.log(
+  "✅ Referral Routes Loaded"
+);
+
 console.log(
   "✅ Coin Routes Loaded"
 );
@@ -514,6 +541,22 @@ console.log(
 
 console.log(
   "✅ Coin Verify : /api/coins/payment/verify"
+);
+
+console.log(
+  "🎁 Referrals   : /api/referrals"
+);
+
+console.log(
+  "🎁 My Invite   : GET /api/referrals/me"
+);
+
+console.log(
+  "🎁 Validate    : GET /api/referrals/validate/:code"
+);
+
+console.log(
+  "🎁 Apply       : POST /api/referrals/apply"
 );
 
 console.log("========================================");
@@ -690,6 +733,16 @@ const validateEnvironment = () => {
   if (!process.env.GROQ_API_KEY) {
     warnings.push(
       "GROQ_API_KEY is not configured"
+    );
+  }
+
+  // --------------------------------------------------------
+  // Referral / Invite Rewards
+  // --------------------------------------------------------
+
+  if (!process.env.REFERRAL_REWARD_COINS) {
+    console.log(
+      "ℹ️ REFERRAL_REWARD_COINS not configured. Default: 100"
     );
   }
 
