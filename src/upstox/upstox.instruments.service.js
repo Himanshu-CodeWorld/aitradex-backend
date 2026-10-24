@@ -15,6 +15,7 @@ function parseCsvLine(line) {
   const out = [];
   let current = "";
   let quoted = false;
+
   for (let i = 0; i < line.length; i++) {
     const ch = line[i];
     if (ch === '"') {
@@ -31,14 +32,50 @@ function parseCsvLine(line) {
       current += ch;
     }
   }
+
   out.push(current);
   return out;
 }
 
+function normalize(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function isIndexInstrument({ segment, instrumentType, instrumentKey }) {
+  const s = normalize(segment);
+  const t = normalize(instrumentType);
+  const key = normalize(instrumentKey);
+  return (
+    s === "NSE_INDEX" ||
+    s === "BSE_INDEX" ||
+    key.startsWith("NSE_INDEX|") ||
+    key.startsWith("BSE_INDEX|") ||
+    (s.endsWith("_INDEX") && t === "INDEX")
+  );
+}
+
+// Only ordinary exchange-listed equity shares are classified as stock.
+// This deliberately excludes SDLs, government/corporate bonds, ETFs,
+// futures/options, currencies, commodities, and other non-equity products.
+function isEquityShare({ segment, instrumentType, instrumentKey }) {
+  const s = normalize(segment);
+  const t = normalize(instrumentType);
+  const key = normalize(instrumentKey);
+
+  const validSegment = s === "NSE_EQ" || s === "BSE_EQ";
+  const validKey = key.startsWith("NSE_EQ|") || key.startsWith("BSE_EQ|");
+  return validSegment && validKey && t === "EQ";
+}
+
 async function loadInstrumentMaster(force = false) {
-  if (!force && cache.instruments.length && Date.now() - cache.loadedAt < CACHE_TTL_MS) {
+  if (
+    !force &&
+    cache.instruments.length &&
+    Date.now() - cache.loadedAt < CACHE_TTL_MS
+  ) {
     return cache.instruments;
   }
+
   if (pendingLoad) return pendingLoad;
 
   pendingLoad = (async () => {
@@ -47,16 +84,24 @@ async function loadInstrumentMaster(force = false) {
       timeout: 30000,
       headers: { Accept: "application/gzip, text/csv, */*" },
     });
+
     let bytes = Buffer.from(response.data);
-    if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
+    if (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
       bytes = await gunzip(bytes);
     }
-    const csv = bytes.toString("utf8").replace(/^\uFEFF/, "");
-    const lines = csv.split(/\r?\n/).filter(Boolean);
-    if (lines.length < 2) throw new Error("Upstox instrument master was empty.");
 
-    const headers = parseCsvLine(lines[0]).map((v) => v.trim().toLowerCase());
-    const idx = (...names) => names.map((n) => headers.indexOf(n)).find((i) => i >= 0) ?? -1;
+    const csv = bytes.toString("utf8").replace(/^\uFEFF/, "");
+    const lines = csv.split(/\r?\n/).filter((line) => line.trim().length > 0);
+    if (lines.length < 2) {
+      throw new Error("Upstox instrument master was empty.");
+    }
+
+    const headers = parseCsvLine(lines[0]).map((value) =>
+      value.trim().toLowerCase()
+    );
+    const idx = (...names) =>
+      names.map((name) => headers.indexOf(name)).find((index) => index >= 0) ?? -1;
+
     const col = {
       key: idx("instrument_key", "instrumentkey"),
       tradingSymbol: idx("trading_symbol", "tradingsymbol"),
@@ -67,40 +112,63 @@ async function loadInstrumentMaster(force = false) {
       isin: idx("isin"),
       lotSize: idx("lot_size", "lotsize"),
     };
-    if (col.key < 0) throw new Error("Upstox instrument master has no instrument_key column.");
+
+    for (const required of ["key", "tradingSymbol", "segment", "instrumentType"]) {
+      if (col[required] < 0) {
+        throw new Error(`Upstox instrument master is missing the ${required} column.`);
+      }
+    }
 
     const result = [];
     const seen = new Set();
+
     for (let i = 1; i < lines.length; i++) {
       const cells = parseCsvLine(lines[i]);
-      const get = (key) => col[key] < 0 ? "" : String(cells[col[key]] || "").trim();
+      const get = (key) =>
+        col[key] < 0 ? "" : String(cells[col[key]] || "").trim();
+
       const instrumentKey = get("key");
       const symbol = get("tradingSymbol");
-      const name = get("name") || symbol;
       if (!instrumentKey || !symbol || seen.has(instrumentKey)) continue;
-      seen.add(instrumentKey);
+
       const segment = get("segment");
       const exchange = get("exchange");
       const instrumentType = get("instrumentType");
-      const isIndex = /INDEX/i.test(segment) || /INDEX/i.test(instrumentType) ||
-        instrumentKey.startsWith("NSE_INDEX|") || instrumentKey.startsWith("BSE_INDEX|");
-      // Dashboard supports tradable equities and indices. Other asset types can be added separately.
-      const isEquity = /EQ/i.test(instrumentType) || /EQUITY/i.test(segment);
-      if (!isIndex && !isEquity) continue;
+      const index = isIndexInstrument({ segment, instrumentType, instrumentKey });
+      const equity = isEquityShare({ segment, instrumentType, instrumentKey });
+
+      if (!index && !equity) continue;
+      seen.add(instrumentKey);
+
       result.push({
         instrumentKey,
+        instrument_key: instrumentKey,
         symbol,
-        name,
-        exchange,
+        trading_symbol: symbol,
+        name: get("name") || symbol,
+        exchange: exchange || (segment.startsWith("BSE") ? "BSE" : "NSE"),
         segment,
         instrumentType,
+        instrument_type: instrumentType,
         isin: get("isin") || null,
         lotSize: Number(get("lotSize")) || null,
-        category: isIndex ? "index" : "stock",
+        category: index ? "index" : "stock",
       });
     }
-    if (!result.length) throw new Error("No equity or index instruments were found in the Upstox master.");
+
+    if (!result.length) {
+      throw new Error(
+        "No NSE/BSE equity shares or supported indices were found in the Upstox master."
+      );
+    }
+
     cache = { loadedAt: Date.now(), instruments: result };
+    console.info(
+      `[Upstox Instruments] Loaded ${result.length} equity/index instruments ` +
+      `(${result.filter((item) => item.category === "stock").length} stocks, ` +
+      `${result.filter((item) => item.category === "index").length} indices).`
+    );
+
     return result;
   })();
 
@@ -111,27 +179,41 @@ async function loadInstrumentMaster(force = false) {
   }
 }
 
-async function searchInstruments({ query = "", category = "all", exchange = "", limit = 100, forceRefresh = false } = {}) {
+async function searchInstruments({
+  query = "",
+  category = "all",
+  exchange = "",
+  limit = 100,
+  forceRefresh = false,
+} = {}) {
   const all = await loadInstrumentMaster(forceRefresh);
-  const q = String(query).trim().toLowerCase();
-  const cat = String(category || "all").toLowerCase();
-  const ex = String(exchange || "").trim().toUpperCase();
-  const max = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 500);
+  const q = String(query || "").trim().toLowerCase();
+  const cat = String(category || "all").trim().toLowerCase();
+  const ex = normalize(exchange);
+  const parsedLimit = Number.parseInt(limit, 10);
+  const max = Math.min(Math.max(Number.isFinite(parsedLimit) ? parsedLimit : 100, 1), 500);
 
   let matches = all.filter((item) => {
     if (cat !== "all" && item.category !== cat) return false;
-    if (ex && item.exchange.toUpperCase() !== ex) return false;
+    if (ex && normalize(item.exchange) !== ex) return false;
     if (!q) return true;
-    return item.symbol.toLowerCase().includes(q) ||
+
+    return (
+      item.symbol.toLowerCase().includes(q) ||
       item.name.toLowerCase().includes(q) ||
       item.instrumentKey.toLowerCase().includes(q) ||
-      String(item.isin || "").toLowerCase().includes(q);
+      String(item.isin || "").toLowerCase().includes(q)
+    );
   });
 
-  // Put common index entries first for an unfiltered dashboard feed, but never hardcode instruments.
+  // For the unfiltered "all" response, return indices first, then actual equities.
   if (!q && cat === "all") {
-    matches = [...matches.filter((x) => x.category === "index"), ...matches.filter((x) => x.category === "stock")];
+    matches = [
+      ...matches.filter((item) => item.category === "index"),
+      ...matches.filter((item) => item.category === "stock"),
+    ];
   }
+
   return {
     success: true,
     source: "upstox-instrument-master",
