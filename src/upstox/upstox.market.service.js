@@ -6,16 +6,7 @@ const axios = require("axios");
 const { UPSTOX_CONFIG } = require("./upstox.config");
 const { getRuntimeAccessToken } = require("./upstox.token.store");
 
-const LIVE_MARKET_ASSETS = Object.freeze({
-  NIFTY: { name: "NIFTY 50", instrumentKey: "NSE_INDEX|Nifty 50" },
-  RELIANCE: { name: "Reliance Industries", instrumentKey: "NSE_EQ|INE002A01018" },
-  HDFCBANK: { name: "HDFC Bank", instrumentKey: "NSE_EQ|INE040A01034" },
-  NIFTYBEES: { name: "NIFTYBEES", instrumentKey: "NSE_EQ|INF204KB14I2" },
-  TCS: { name: "TCS", instrumentKey: "NSE_EQ|INE467B01029" },
-  INFY: { name: "Infosys", instrumentKey: "NSE_EQ|INE009A01021" },
-  ICICIBANK: { name: "ICICI Bank", instrumentKey: "NSE_EQ|INE090A01021" },
-  BHARTIARTL: { name: "Bharti Airtel", instrumentKey: "NSE_EQ|INE397D01024" },
-});
+const LIVE_MARKET_ASSETS = Object.freeze({});
 
 class UpstoxMarketService {
   getAccessToken() {
@@ -34,7 +25,8 @@ class UpstoxMarketService {
   }
 
   getDefaultInstrumentKeys() {
-    return Object.values(LIVE_MARKET_ASSETS).map((asset) => asset.instrumentKey);
+    // Dynamic instruments are provided by /instruments.
+    return [];
   }
 
   validateInstrumentKeys(instrumentKeys) {
@@ -136,7 +128,7 @@ class UpstoxMarketService {
       // Upstox response keys normally preserve the requested instrument key.
       // Keep that stable key instead of relying on optional response fields.
       const instrumentKey = String(responseKey);
-      const asset = Object.values(LIVE_MARKET_ASSETS).find((item) => item.instrumentKey === instrumentKey);
+      const asset = null;
 
       data[instrumentKey] = {
         instrument_key: instrumentKey,
