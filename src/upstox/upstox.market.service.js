@@ -5,8 +5,7 @@
 const axios = require("axios");
 const { UPSTOX_CONFIG } = require("./upstox.config");
 const { getRuntimeAccessToken } = require("./upstox.token.store");
-
-const LIVE_MARKET_ASSETS = Object.freeze({});
+const { loadInstrumentMaster } = require("./upstox.instruments.service");
 
 class UpstoxMarketService {
   getAccessToken() {
@@ -113,11 +112,75 @@ class UpstoxMarketService {
       throw error;
     }
 
-    const data = {};
+    // Upstox v3 LTP often returns keys like "NSE_EQ:RELIANCE", not
+    // the requested instrument key "NSE_EQ|INE002A01018". Resolve each
+    // response alias through the instrument master and return data keyed by
+    // the exact key requested by Flutter.
+    const instruments = await loadInstrumentMaster();
+    const byInstrumentKey = new Map();
+    const byResponseAlias = new Map();
+
+    const normalizeAlias = (value) =>
+      String(value || "")
+        .trim()
+        .replace(/\+/g, " ")
+        .replace(/\|/g, ":")
+        .replace(/\s+/g, " ")
+        .toLowerCase();
+
+    for (const instrument of instruments) {
+      byInstrumentKey.set(String(instrument.instrumentKey), instrument);
+
+      const segment = String(instrument.segment || "");
+      const symbol = String(instrument.symbol || "");
+      if (segment && symbol) {
+        byResponseAlias.set(normalizeAlias(`${segment}:${symbol}`), instrument);
+      }
+      // Some response variants use exchange:symbol instead of segment:symbol.
+      const exchange = String(instrument.exchange || "");
+      if (exchange && symbol) {
+        byResponseAlias.set(normalizeAlias(`${exchange}:${symbol}`), instrument);
+      }
+    }
+
+    const rawByAlias = new Map();
     for (const [responseKey, quote] of Object.entries(rawData)) {
+      rawByAlias.set(normalizeAlias(responseKey), { responseKey, quote });
+    }
+
+    const data = {};
+    for (const requestedKey of keys) {
+      const instrument = byInstrumentKey.get(requestedKey);
+      const aliases = [];
+      if (instrument) {
+        if (instrument.segment && instrument.symbol) {
+          aliases.push(`${instrument.segment}:${instrument.symbol}`);
+        }
+        if (instrument.exchange && instrument.symbol) {
+          aliases.push(`${instrument.exchange}:${instrument.symbol}`);
+        }
+      }
+      // Preserve support for providers/response versions that return the
+      // original instrument key directly.
+      aliases.push(requestedKey);
+
+      let matched = null;
+      for (const alias of aliases) {
+        matched = rawByAlias.get(normalizeAlias(alias));
+        if (matched) break;
+      }
+
+      // A direct key can still be resolved even if the catalogue did not
+      // include that particular instrument.
+      if (!matched) {
+        matched = rawByAlias.get(normalizeAlias(requestedKey));
+      }
+      if (!matched) continue;
+
+      const quote = matched.quote;
       if (!quote || typeof quote !== "object") continue;
 
-      const lastPrice = Number(quote.last_price);
+      const lastPrice = Number(quote.last_price ?? quote.lastPrice ?? quote.ltp);
       if (!Number.isFinite(lastPrice) || lastPrice < 0) continue;
 
       const closeRaw = quote.cp ?? quote.close_price ?? quote.previous_close;
@@ -125,15 +188,11 @@ class UpstoxMarketService {
       const hasClose = Number.isFinite(closePrice) && closePrice > 0;
       const change = hasClose ? lastPrice - closePrice : null;
       const changePercent = hasClose ? (change / closePrice) * 100 : null;
-      // Upstox response keys normally preserve the requested instrument key.
-      // Keep that stable key instead of relying on optional response fields.
-      const instrumentKey = String(responseKey);
-      const asset = null;
 
-      data[instrumentKey] = {
-        instrument_key: instrumentKey,
-        symbol: asset ? Object.keys(LIVE_MARKET_ASSETS).find((symbol) => LIVE_MARKET_ASSETS[symbol] === asset) : null,
-        name: asset?.name || null,
+      data[requestedKey] = {
+        instrument_key: requestedKey,
+        symbol: instrument?.symbol || null,
+        name: instrument?.name || null,
         last_price: lastPrice,
         close_price: hasClose ? closePrice : null,
         ltq: quote.ltq == null || !Number.isFinite(Number(quote.ltq)) ? null : Number(quote.ltq),
@@ -156,4 +215,4 @@ class UpstoxMarketService {
   }
 }
 
-module.exports = { UpstoxMarketService, LIVE_MARKET_ASSETS };
+module.exports = { UpstoxMarketService };

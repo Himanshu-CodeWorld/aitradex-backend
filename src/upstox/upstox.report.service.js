@@ -7,6 +7,7 @@
 // ==========================================================
 
 const axios = require("axios");
+const { loadInstrumentMaster } = require("./upstox.instruments.service");
 
 const { UPSTOX_CONFIG } = require("./upstox.config");
 const {
@@ -112,11 +113,15 @@ class UpstoxReportService {
     const cleanIsin = stringValue(isin).toUpperCase();
 
     if (cleanKey) {
+      // Resolve metadata from the same instrument master used by market data.
+      // Flutter may send only instrument_key, while Upstox quote maps use symbols.
+      const instruments = await loadInstrumentMaster();
+      const match = instruments.find((item) => item.instrumentKey === cleanKey);
       return {
         instrumentKey: cleanKey,
-        isin: cleanIsin,
-        symbol: cleanSymbol,
-        name: cleanSymbol,
+        isin: cleanIsin || stringValue(match?.isin),
+        symbol: cleanSymbol || stringValue(match?.symbol),
+        name: stringValue(match?.name || match?.symbol || cleanSymbol),
       };
     }
 
@@ -174,10 +179,19 @@ class UpstoxReportService {
 
   parseLtp(response, instrumentKey, symbol) {
     const data = response?.data || {};
-    const raw =
+    const direct =
       data[instrumentKey] ||
-      data[encodeURIComponent(instrumentKey)] ||
-      {};
+      data[encodeURIComponent(instrumentKey)];
+    const wantedSymbol = stringValue(symbol).toUpperCase();
+    const matchingEntry = Object.entries(data).find(([responseKey, quote]) => {
+      const keySymbol = String(responseKey).split(":").slice(1).join(":").trim().toUpperCase();
+      const quoteSymbol = stringValue(
+        quote?.trading_symbol || quote?.tradingSymbol || quote?.symbol
+      ).toUpperCase();
+      return (wantedSymbol && keySymbol === wantedSymbol) ||
+        (wantedSymbol && quoteSymbol === wantedSymbol);
+    });
+    const raw = direct || matchingEntry?.[1] || {};
 
     const lastPrice = asNumber(
       raw.last_price ?? raw.lastPrice ?? raw.ltp
