@@ -1,14 +1,12 @@
 const { UpstoxMarketService } = require("./upstox.market.service");
-const { searchInstruments } = require("./upstox.instruments.service");
 const marketService = new UpstoxMarketService();
 
-async function parseInstrumentKeys(value) {
+function parseInstrumentKeys(value) {
   if (value === undefined || value === null || String(value).trim() === "") {
-    const catalog = await searchInstruments({ category: "all", limit: 100 });
-    return catalog.data.map((item) => item.instrumentKey);
+    return marketService.getDefaultInstrumentKeys();
   }
   const values = Array.isArray(value) ? value : [value];
-  return values.flatMap((item) => String(item).split(",")).map((key) => key.trim()).filter(Boolean);
+  return [...new Set(values.flatMap((item) => String(item).split(",")).map((key) => key.trim()).filter(Boolean))];
 }
 
 async function getMarketData(req, res) {
