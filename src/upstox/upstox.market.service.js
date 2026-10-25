@@ -1,71 +1,112 @@
 // ==========================================================
 // AiTradeX - Upstox Market Data Service (V3)
 // ==========================================================
+"use strict";
 
 const axios = require("axios");
 const { UPSTOX_CONFIG } = require("./upstox.config");
 const { getRuntimeAccessToken } = require("./upstox.token.store");
 const { loadInstrumentMaster } = require("./upstox.instruments.service");
 
+const KNOWN_INSTRUMENTS = {
+  "NSE_INDEX|Nifty 50": { symbol: "Nifty 50", segment: "NSE_INDEX", exchange: "NSE" },
+  "NSE_INDEX|Nifty Bank": { symbol: "Nifty Bank", segment: "NSE_INDEX", exchange: "NSE" },
+  "NSE_EQ|INE002A01018": { symbol: "RELIANCE", segment: "NSE_EQ", exchange: "NSE" },
+  "NSE_EQ|INE040A01034": { symbol: "HDFCBANK", segment: "NSE_EQ", exchange: "NSE" },
+  "NSE_EQ|INE467B01029": { symbol: "TCS", segment: "NSE_EQ", exchange: "NSE" },
+  "NSE_EQ|INE009A01021": { symbol: "INFY", segment: "NSE_EQ", exchange: "NSE" },
+  "NSE_EQ|INE090A01021": { symbol: "ICICIBANK", segment: "NSE_EQ", exchange: "NSE" },
+  "NSE_EQ|INE397D01024": { symbol: "DMART", segment: "NSE_EQ", exchange: "NSE" },
+  "NSE_EQ|INE155A01022": { symbol: "TATAMOTORS", segment: "NSE_EQ", exchange: "NSE" },
+};
+
+function normalizeAlias(value) {
+  return String(value ?? "")
+    .trim()
+    .replace(/\+/g, " ")
+    .replace(/\|/g, ":")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+function positiveNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+function makeApiError(message, statusCode, code) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  error.code = code;
+  return error;
+}
+
 class UpstoxMarketService {
   getAccessToken() {
-    const envToken = process.env.UPSTOX_ACCESS_TOKEN || process.env.UPSTOX_ANALYTICS_TOKEN;
-    if (typeof envToken === "string" && envToken.trim()) return envToken.trim();
+    const envToken =
+      process.env.UPSTOX_ACCESS_TOKEN ||
+      process.env.UPSTOX_ANALYTICS_TOKEN;
+
+    if (typeof envToken === "string" && envToken.trim()) {
+      return envToken.trim();
+    }
 
     const runtimeToken = getRuntimeAccessToken();
     if (runtimeToken) return runtimeToken;
 
-    const error = new Error(
-      "No Upstox access token is available. Complete Upstox login or configure UPSTOX_ACCESS_TOKEN on the backend."
+    throw makeApiError(
+      "No Upstox access token is available. Complete Upstox login or configure UPSTOX_ACCESS_TOKEN on the backend.",
+      503,
+      "UPSTOX_TOKEN_NOT_CONFIGURED"
     );
-    error.statusCode = 503;
-    error.code = "UPSTOX_TOKEN_NOT_CONFIGURED";
-    throw error;
   }
 
   getDefaultInstrumentKeys() {
-    // Dashboard watchlist. Keep the keys on the backend; Flutter can request
-    // quotes without downloading the complete instrument master.
-    return [
-      "NSE_INDEX|Nifty 50",
-      "NSE_INDEX|Nifty Bank",
-      "NSE_EQ|INE002A01018", // RELIANCE
-      "NSE_EQ|INE040A01034", // HDFCBANK
-      "NSE_EQ|INE467B01029", // TCS
-      "NSE_EQ|INE009A01021", // INFY
-      "NSE_EQ|INE090A01021", // ICICIBANK
-      "NSE_EQ|INE397D01024", // DMART
-      "NSE_EQ|INE155A01022", // TATAMOTORS
-    ];
+    return Object.keys(KNOWN_INSTRUMENTS);
   }
 
   validateInstrumentKeys(instrumentKeys) {
     if (!Array.isArray(instrumentKeys)) {
-      const error = new Error("instrument_key must be supplied as a list.");
-      error.statusCode = 400;
-      error.code = "INVALID_INSTRUMENT_KEYS";
-      throw error;
+      throw makeApiError(
+        "instrument_key must be supplied as a list.",
+        400,
+        "INVALID_INSTRUMENT_KEYS"
+      );
     }
 
-    const keys = [...new Set(instrumentKeys.map((value) => String(value || "").trim()).filter(Boolean))];
+    const keys = [
+      ...new Set(
+        instrumentKeys
+          .map((value) => String(value ?? "").trim())
+          .filter(Boolean)
+      ),
+    ];
+
     if (!keys.length) {
-      const error = new Error("At least one instrument_key is required.");
-      error.statusCode = 400;
-      error.code = "INSTRUMENT_KEY_REQUIRED";
-      throw error;
+      throw makeApiError(
+        "At least one instrument_key is required.",
+        400,
+        "INSTRUMENT_KEY_REQUIRED"
+      );
     }
+
     if (keys.length > 500) {
-      const error = new Error("A maximum of 500 instrument keys is allowed per request.");
-      error.statusCode = 400;
-      error.code = "INSTRUMENT_KEY_LIMIT";
-      throw error;
+      throw makeApiError(
+        "A maximum of 500 instrument keys is allowed per request.",
+        400,
+        "INSTRUMENT_KEY_LIMIT"
+      );
     }
+
     if (keys.some((key) => key.length > 200)) {
-      const error = new Error("An instrument_key is too long.");
-      error.statusCode = 400;
-      error.code = "INVALID_INSTRUMENT_KEY";
-      throw error;
+      throw makeApiError(
+        "An instrument_key is too long.",
+        400,
+        "INVALID_INSTRUMENT_KEY"
+      );
     }
+
     return keys;
   }
 
@@ -75,143 +116,274 @@ class UpstoxMarketService {
 
     let response;
     try {
-      response = await axios.get(`${UPSTOX_CONFIG.marketApiBaseUrl}/market-quote/ltp`, {
-        params: { instrument_key: keys.join(",") },
-        headers: {
-          Accept: "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        timeout: UPSTOX_CONFIG.requestTimeoutMs,
-        validateStatus: (status) => status >= 200 && status < 300,
-      });
+      response = await axios.get(
+        `${UPSTOX_CONFIG.marketApiBaseUrl}/market-quote/ltp`,
+        {
+          params: { instrument_key: keys.join(",") },
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          timeout: UPSTOX_CONFIG.requestTimeoutMs,
+        }
+      );
     } catch (error) {
       const status = Number(error.response?.status) || 0;
       const upstream = error.response?.data;
-      // Do not log tokens or request headers.
+      const upstreamMessage =
+        upstream?.errors?.[0]?.message ||
+        upstream?.message ||
+        error.message;
+
+      // Never log access tokens or request headers.
       console.error("[Upstox Market Data] Request failed", {
         status: status || null,
         code: error.code || null,
-        message: upstream?.errors?.[0]?.message || upstream?.message || error.message,
+        message: upstreamMessage,
       });
 
-      let apiError;
       if (status === 401 || status === 403) {
-        apiError = new Error("Upstox rejected the access token or its permissions. Reconnect Upstox and verify API access.");
-        apiError.statusCode = status === 403 ? 403 : 401;
-        apiError.code = status === 403 ? "UPSTOX_ACCESS_FORBIDDEN" : "UPSTOX_TOKEN_INVALID";
-      } else if (status === 429) {
-        apiError = new Error("Upstox rate limit reached. Wait briefly before retrying.");
-        apiError.statusCode = 429;
-        apiError.code = "UPSTOX_RATE_LIMIT";
-      } else if (error.code === "ECONNABORTED" || error.code === "ETIMEDOUT") {
-        apiError = new Error("The Upstox market-data request timed out. Please retry.");
-        apiError.statusCode = 504;
-        apiError.code = "UPSTOX_TIMEOUT";
-      } else {
-        apiError = new Error(upstream?.errors?.[0]?.message || upstream?.message || "Unable to fetch market data from Upstox.");
-        apiError.statusCode = status >= 400 && status < 600 ? 502 : 502;
-        apiError.code = "UPSTOX_MARKET_DATA_ERROR";
+        throw makeApiError(
+          "Upstox rejected the access token or its permissions. Reconnect Upstox and verify API access.",
+          status,
+          status === 403 ? "UPSTOX_ACCESS_FORBIDDEN" : "UPSTOX_TOKEN_INVALID"
+        );
       }
-      throw apiError;
+
+      if (status === 429) {
+        throw makeApiError(
+          "Upstox rate limit reached. Wait briefly before retrying.",
+          429,
+          "UPSTOX_RATE_LIMIT"
+        );
+      }
+
+      if (
+        error.code === "ECONNABORTED" ||
+        error.code === "ETIMEDOUT"
+      ) {
+        throw makeApiError(
+          "The Upstox market-data request timed out. Please retry.",
+          504,
+          "UPSTOX_TIMEOUT"
+        );
+      }
+
+      throw makeApiError(
+        upstreamMessage || "Unable to fetch market data from Upstox.",
+        502,
+        "UPSTOX_MARKET_DATA_ERROR"
+      );
     }
 
     const rawData = response?.data?.data;
     if (!rawData || typeof rawData !== "object" || Array.isArray(rawData)) {
-      const error = new Error("Upstox returned an unexpected market-data response.");
-      error.statusCode = 502;
-      error.code = "UPSTOX_INVALID_RESPONSE";
-      throw error;
+      throw makeApiError(
+        "Upstox returned an unexpected market-data response.",
+        502,
+        "UPSTOX_INVALID_RESPONSE"
+      );
     }
 
-    // Upstox v3 LTP often returns keys like "NSE_EQ:RELIANCE", not
-    // the requested instrument key "NSE_EQ|INE002A01018". Resolve each
-    // response alias through the instrument master and return data keyed by
-    // the exact key requested by Flutter.
-    const instruments = await loadInstrumentMaster();
-    const byInstrumentKey = new Map();
-    const byResponseAlias = new Map();
+    // Instrument master is useful for resolving response aliases, but it must
+    // not prevent direct instrument-key quotes from being returned.
+    let instruments = [];
+    try {
+      instruments = await loadInstrumentMaster();
+    } catch (error) {
+      console.warn(
+        "[Upstox Market Data] Instrument master unavailable; matching direct quote keys:",
+        error.message
+      );
+    }
 
-    const normalizeAlias = (value) =>
-      String(value || "")
-        .trim()
-        .replace(/\+/g, " ")
-        .replace(/\|/g, ":")
-        .replace(/\s+/g, " ")
-        .toLowerCase();
+    const instrumentByKey = new Map();
+    const aliasToInstrument = new Map();
 
     for (const instrument of instruments) {
-      byInstrumentKey.set(String(instrument.instrumentKey), instrument);
+      const key = String(instrument.instrumentKey || instrument.instrument_key || "").trim();
+      const symbol = String(instrument.symbol || instrument.trading_symbol || "").trim();
+      const segment = String(instrument.segment || "").trim();
+      const exchange = String(instrument.exchange || "").trim();
 
-      const segment = String(instrument.segment || "");
-      const symbol = String(instrument.symbol || "");
-      if (segment && symbol) {
-        byResponseAlias.set(normalizeAlias(`${segment}:${symbol}`), instrument);
+      if (key) instrumentByKey.set(normalizeAlias(key), instrument);
+
+      if (symbol && segment) {
+        aliasToInstrument.set(normalizeAlias(`${segment}:${symbol}`), instrument);
       }
-      // Some response variants use exchange:symbol instead of segment:symbol.
-      const exchange = String(instrument.exchange || "");
-      if (exchange && symbol) {
-        byResponseAlias.set(normalizeAlias(`${exchange}:${symbol}`), instrument);
+      if (symbol && exchange) {
+        aliasToInstrument.set(normalizeAlias(`${exchange}:${symbol}`), instrument);
       }
     }
 
-    const rawByAlias = new Map();
+    // Static aliases cover the app's fixed dashboard watchlist even if the
+    // downloaded catalogue has a schema variation and currently has no stocks.
+    for (const [key, instrument] of Object.entries(KNOWN_INSTRUMENTS)) {
+      aliasToInstrument.set(
+        normalizeAlias(`${instrument.segment}:${instrument.symbol}`),
+        { ...instrument, instrumentKey: key }
+      );
+      aliasToInstrument.set(
+        normalizeAlias(`${instrument.exchange}:${instrument.symbol}`),
+        { ...instrument, instrumentKey: key }
+      );
+      instrumentByKey.set(normalizeAlias(key), {
+        ...instrument,
+        instrumentKey: key,
+      });
+    }
+
+    const requestedKeyByAlias = new Map();
+    const instrumentByRequestedKey = new Map();
+
+    for (const requestedKey of keys) {
+      const normalizedKey = normalizeAlias(requestedKey);
+      const instrument =
+        instrumentByKey.get(normalizedKey) ||
+        aliasToInstrument.get(normalizedKey) ||
+        null;
+
+      instrumentByRequestedKey.set(requestedKey, instrument);
+
+      requestedKeyByAlias.set(normalizedKey, requestedKey);
+
+      if (instrument) {
+        const symbol = String(instrument.symbol || instrument.trading_symbol || "");
+        const segment = String(instrument.segment || "");
+        const exchange = String(instrument.exchange || "");
+
+        if (symbol && segment) {
+          requestedKeyByAlias.set(
+            normalizeAlias(`${segment}:${symbol}`),
+            requestedKey
+          );
+        }
+        if (symbol && exchange) {
+          requestedKeyByAlias.set(
+            normalizeAlias(`${exchange}:${symbol}`),
+            requestedKey
+          );
+        }
+      }
+    }
+
+    const quotesByRequestedKey = new Map();
+
     for (const [responseKey, quote] of Object.entries(rawData)) {
-      rawByAlias.set(normalizeAlias(responseKey), { responseKey, quote });
+      if (!quote || typeof quote !== "object" || Array.isArray(quote)) {
+        continue;
+      }
+
+      // Upstox versions may return the requested key as the object key, an
+      // exchange:symbol alias, or the instrument key inside instrument_token.
+      const quoteInstrumentKey =
+        quote.instrument_key ||
+        quote.instrumentKey ||
+        quote.instrument_token ||
+        quote.instrumentToken ||
+        "";
+
+      const candidateAliases = [
+        responseKey,
+        quoteInstrumentKey,
+      ].filter(Boolean);
+
+      let requestedKey = null;
+
+      for (const alias of candidateAliases) {
+        requestedKey = requestedKeyByAlias.get(normalizeAlias(alias)) || null;
+        if (requestedKey) break;
+
+        const aliasInstrument = aliasToInstrument.get(normalizeAlias(alias));
+        if (aliasInstrument) {
+          const aliasKey = String(
+            aliasInstrument.instrumentKey || aliasInstrument.instrument_key || ""
+          );
+          requestedKey = keys.find(
+            (key) => normalizeAlias(key) === normalizeAlias(aliasKey)
+          ) || null;
+          if (requestedKey) break;
+        }
+      }
+
+      // If the response object key is a known alias, resolve it to its
+      // canonical Upstox instrument key.
+      if (!requestedKey) {
+        const aliasInstrument = aliasToInstrument.get(normalizeAlias(responseKey));
+        if (aliasInstrument) {
+          const aliasKey = String(
+            aliasInstrument.instrumentKey || aliasInstrument.instrument_key || ""
+          );
+          requestedKey = keys.find(
+            (key) => normalizeAlias(key) === normalizeAlias(aliasKey)
+          ) || null;
+        }
+      }
+
+      // Direct quote keys should always work, even if no catalogue row exists.
+      if (!requestedKey) {
+        requestedKey = keys.find(
+          (key) =>
+            normalizeAlias(key) === normalizeAlias(responseKey) ||
+            (quoteInstrumentKey &&
+              normalizeAlias(key) === normalizeAlias(quoteInstrumentKey))
+        ) || null;
+      }
+
+      if (requestedKey) {
+        quotesByRequestedKey.set(requestedKey, quote);
+      }
     }
 
     const data = {};
+
     for (const requestedKey of keys) {
-      const instrument = byInstrumentKey.get(requestedKey);
-      const aliases = [];
-      if (instrument) {
-        if (instrument.segment && instrument.symbol) {
-          aliases.push(`${instrument.segment}:${instrument.symbol}`);
-        }
-        if (instrument.exchange && instrument.symbol) {
-          aliases.push(`${instrument.exchange}:${instrument.symbol}`);
-        }
-      }
-      // Preserve support for providers/response versions that return the
-      // original instrument key directly.
-      aliases.push(requestedKey);
+      const quote = quotesByRequestedKey.get(requestedKey);
+      if (!quote) continue;
 
-      let matched = null;
-      for (const alias of aliases) {
-        matched = rawByAlias.get(normalizeAlias(alias));
-        if (matched) break;
-      }
+      const instrument =
+        instrumentByRequestedKey.get(requestedKey) ||
+        KNOWN_INSTRUMENTS[requestedKey] ||
+        null;
 
-      // A direct key can still be resolved even if the catalogue did not
-      // include that particular instrument.
-      if (!matched) {
-        matched = rawByAlias.get(normalizeAlias(requestedKey));
-      }
-      if (!matched) continue;
+      const lastPrice = positiveNumber(
+        quote.last_price ?? quote.lastPrice ?? quote.ltp
+      );
 
-      const quote = matched.quote;
-      if (!quote || typeof quote !== "object") continue;
+      if (lastPrice === null) continue;
 
-      const lastPrice = Number(quote.last_price ?? quote.lastPrice ?? quote.ltp);
-      if (!Number.isFinite(lastPrice) || lastPrice < 0) continue;
-
-      const closeRaw = quote.cp ?? quote.close_price ?? quote.previous_close;
-      const closePrice = closeRaw === null || closeRaw === undefined ? NaN : Number(closeRaw);
-      const hasClose = Number.isFinite(closePrice) && closePrice > 0;
+      const closePrice = positiveNumber(
+        quote.cp ?? quote.close_price ?? quote.previous_close ?? quote.previousClose
+      );
+      const hasClose = closePrice !== null;
       const change = hasClose ? lastPrice - closePrice : null;
       const changePercent = hasClose ? (change / closePrice) * 100 : null;
 
       data[requestedKey] = {
         instrument_key: requestedKey,
-        symbol: instrument?.symbol || null,
-        name: instrument?.name || null,
+        symbol: instrument?.symbol || instrument?.trading_symbol || null,
+        name: instrument?.name || instrument?.symbol || null,
         last_price: lastPrice,
-        close_price: hasClose ? closePrice : null,
-        ltq: quote.ltq == null || !Number.isFinite(Number(quote.ltq)) ? null : Number(quote.ltq),
-        volume: quote.volume == null || !Number.isFinite(Number(quote.volume)) ? null : Number(quote.volume),
+        close_price: closePrice,
         change,
-        change_percent: Number.isFinite(changePercent) ? Number(changePercent.toFixed(4)) : null,
+        change_percent: Number.isFinite(changePercent)
+          ? Number(changePercent.toFixed(4))
+          : null,
+        ltq: positiveNumber(quote.ltq),
+        volume: positiveNumber(quote.volume),
       };
     }
+
+    const missing = keys.filter(
+      (key) => !Object.prototype.hasOwnProperty.call(data, key)
+    );
+
+    console.info("[Upstox Market Data] Quote mapping result", {
+      requested: keys.length,
+      returned: Object.keys(data).length,
+      missing: missing.length,
+      sampleMissing: missing.slice(0, 5),
+    });
 
     return {
       success: true,
@@ -220,7 +392,7 @@ class UpstoxMarketService {
       timestamp: new Date().toISOString(),
       requested_count: keys.length,
       returned_count: Object.keys(data).length,
-      missing_instruments: keys.filter((key) => !Object.prototype.hasOwnProperty.call(data, key)),
+      missing_instruments: missing,
       data,
     };
   }

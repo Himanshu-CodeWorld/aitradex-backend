@@ -1,4 +1,3 @@
-
 "use strict";
 
 const axios = require("axios");
@@ -12,124 +11,95 @@ const INSTRUMENT_MASTER_URL =
   "https://assets.upstox.com/market-quote/instruments/exchange/complete.csv.gz";
 
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-const REQUEST_TIMEOUT_MS = 30000;
+const REQUEST_TIMEOUT_MS = 30_000;
 const MAX_SEARCH_LIMIT = 500;
 
-let cache = {
-  loadedAt: 0,
-  instruments: [],
-};
-
+let cache = { loadedAt: 0, instruments: [] };
 let pendingLoad = null;
 
 /**
- * Normalize CSV header names, allowing variations such as:
- * instrument_key, Instrument Key, instrument-key.
+ * Parse one CSV record, respecting quoted commas and escaped quotes.
+ * The Upstox instrument master is line-oriented; embedded newlines in fields
+ * are not expected.
  */
+function parseCsvLine(line) {
+  const values = [];
+  let value = "";
+  let quoted = false;
+
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+
+    if (ch === '"') {
+      if (quoted && line[i + 1] === '"') {
+        value += '"';
+        i += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (ch === "," && !quoted) {
+      values.push(value);
+      value = "";
+    } else {
+      value += ch;
+    }
+  }
+
+  values.push(value);
+  return values;
+}
+
+function normalize(value) {
+  return String(value ?? "").trim().toUpperCase();
+}
+
 function normalizeHeader(value) {
-  return String(value || "")
+  return String(value ?? "")
     .replace(/^\uFEFF/, "")
     .trim()
     .toLowerCase()
     .replace(/[\s-]+/g, "_");
 }
 
-function normalize(value) {
-  return String(value || "").trim().toUpperCase();
+function getColumnIndex(headers, ...aliases) {
+  for (const alias of aliases) {
+    const index = headers.indexOf(normalizeHeader(alias));
+    if (index >= 0) return index;
+  }
+  return -1;
 }
 
 /**
- * Parse a single CSV row while respecting quoted commas and escaped quotes.
+ * The complete Upstox CSV may not include a "segment" column.
+ * In that format, the segment is encoded in instrument_key, for example:
+ * NSE_EQ|INE... and NSE_INDEX|Nifty 50.
  */
-function parseCsvLine(line) {
-  const result = [];
-  let current = "";
-  let quoted = false;
-
-  for (let i = 0; i < line.length; i += 1) {
-    const char = line[i];
-
-    if (char === '"') {
-      if (quoted && line[i + 1] === '"') {
-        current += '"';
-        i += 1;
-      } else {
-        quoted = !quoted;
-      }
-    } else if (char === "," && !quoted) {
-      result.push(current);
-      current = "";
-    } else {
-      current += char;
-    }
+function inferSegment(instrumentKey, exchange, instrumentType, rawSegment = "") {
+  const segment = normalize(rawSegment);
+  if (["NSE_EQ", "BSE_EQ", "NSE_INDEX", "BSE_INDEX"].includes(segment)) {
+    return segment;
   }
 
-  result.push(current);
-  return result;
-}
-
-/**
- * Infer segment from Upstox's instrument key first.
- *
- * Examples:
- * NSE_EQ|INE002A01018 -> NSE_EQ
- * BSE_EQ|500325       -> BSE_EQ
- * NSE_INDEX|Nifty 50  -> NSE_INDEX
- */
-function inferSegment(instrumentKey, exchange, instrumentType) {
   const key = normalize(instrumentKey);
-  const exchangeValue = normalize(exchange);
+  const keyMatch = key.match(/^(NSE_EQ|BSE_EQ|NSE_INDEX|BSE_INDEX)\|/);
+  if (keyMatch) return keyMatch[1];
+
+  const ex = normalize(exchange);
   const type = normalize(instrumentType);
 
-  const keyMatch = key.match(
-    /^(NSE_EQ|BSE_EQ|NSE_INDEX|BSE_INDEX)\|/
-  );
-
-  if (keyMatch) {
-    return keyMatch[1];
+  if (["NSE_EQ", "BSE_EQ", "NSE_INDEX", "BSE_INDEX"].includes(ex)) {
+    return ex;
   }
 
-  const supportedSegments = [
-    "NSE_EQ",
-    "BSE_EQ",
-    "NSE_INDEX",
-    "BSE_INDEX",
-  ];
-
-  if (supportedSegments.includes(exchangeValue)) {
-    return exchangeValue;
-  }
-
-  if (type === "EQ" && exchangeValue === "NSE") {
-    return "NSE_EQ";
-  }
-
-  if (type === "EQ" && exchangeValue === "BSE") {
-    return "BSE_EQ";
-  }
-
-  if (
-    ["INDEX", "INDICES"].includes(type) &&
-    exchangeValue === "NSE"
-  ) {
-    return "NSE_INDEX";
-  }
-
-  if (
-    ["INDEX", "INDICES"].includes(type) &&
-    exchangeValue === "BSE"
-  ) {
-    return "BSE_INDEX";
-  }
+  if (type === "EQ" && ex === "NSE") return "NSE_EQ";
+  if (type === "EQ" && ex === "BSE") return "BSE_EQ";
+  if (type === "INDEX" && ex === "NSE") return "NSE_INDEX";
+  if (type === "INDEX" && ex === "BSE") return "BSE_INDEX";
 
   return "";
 }
 
-function isIndexInstrument({
-  segment,
-  instrumentType,
-  instrumentKey,
-}) {
+function isIndexInstrument({ segment, instrumentType, instrumentKey }) {
   const s = normalize(segment);
   const t = normalize(instrumentType);
   const key = normalize(instrumentKey);
@@ -139,151 +109,111 @@ function isIndexInstrument({
     s === "BSE_INDEX" ||
     key.startsWith("NSE_INDEX|") ||
     key.startsWith("BSE_INDEX|") ||
-    (s.endsWith("_INDEX") && ["INDEX", "INDICES"].includes(t))
+    (s.endsWith("_INDEX") && t === "INDEX")
   );
 }
 
-/**
- * Only regular NSE/BSE equity shares are included as stocks.
- * ETFs, derivatives, bonds, currencies and commodities are excluded.
- */
-function isEquityShare({
-  segment,
-  instrumentType,
-  instrumentKey,
-}) {
+// Only ordinary exchange-listed equity shares are classified as stocks.
+// ETFs, bonds, derivatives, currencies, and commodities are intentionally excluded.
+function isEquityShare({ segment, instrumentType, instrumentKey }) {
   const s = normalize(segment);
   const t = normalize(instrumentType);
   const key = normalize(instrumentKey);
 
-  return (
-    ["NSE_EQ", "BSE_EQ"].includes(s) &&
-    (key.startsWith("NSE_EQ|") || key.startsWith("BSE_EQ|")) &&
-    t === "EQ"
-  );
+  const validSegment = s === "NSE_EQ" || s === "BSE_EQ";
+  const validKey = key.startsWith("NSE_EQ|") || key.startsWith("BSE_EQ|");
+
+  // Upstox master versions can label ordinary shares as EQ or EQUITY.
+  // If the type column is absent/blank, the exchange segment and instrument
+  // key still identify an equity-segment row. Explicit non-equity types
+  // (ETF, FUTSTK, OPTSTK, bonds, etc.) remain excluded.
+  const acceptedTypes = new Set(["EQ", "EQUITY", "STOCK", "SHARE", "SHARES"]);
+  const knownNonEquityType = t.length > 0 && !acceptedTypes.has(t);
+
+  return validSegment && validKey && !knownNonEquityType;
 }
 
-function findColumn(headers, ...aliases) {
-  for (const alias of aliases) {
-    const index = headers.indexOf(normalizeHeader(alias));
-
-    if (index >= 0) {
-      return index;
-    }
-  }
-
-  return -1;
+function safeNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function getCell(cells, index) {
-  if (index < 0 || index >= cells.length) {
-    return "";
-  }
+function decodeResponseBody(data) {
+  let bytes = Buffer.isBuffer(data) ? data : Buffer.from(data);
 
-  return String(cells[index] ?? "").trim();
-}
-
-function getExchange(exchangeValue, segment) {
-  const exchange = normalize(exchangeValue);
-
-  if (exchange === "NSE" || exchange === "BSE") {
-    return exchange;
-  }
-
-  if (exchange.startsWith("BSE") || normalize(segment).startsWith("BSE")) {
-    return "BSE";
-  }
-
-  if (exchange.startsWith("NSE") || normalize(segment).startsWith("NSE")) {
-    return "NSE";
-  }
-
-  return "";
-}
-
-async function downloadInstrumentCsv() {
-  const response = await axios.get(INSTRUMENT_MASTER_URL, {
-    responseType: "arraybuffer",
-    timeout: REQUEST_TIMEOUT_MS,
-    headers: {
-      Accept: "application/gzip, text/csv, */*",
-    },
-  });
-
-  let bytes = Buffer.from(response.data);
-
-  if (!bytes.length) {
-    throw new Error("Upstox instrument master returned an empty response.");
-  }
-
-  // Decompress gzip only when the response is actually gzip data.
+  // Some proxies/CDNs may transparently decompress gzip; only gunzip when
+  // the response still has the gzip magic bytes.
   if (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
-    bytes = await gunzip(bytes);
+    return gunzip(bytes);
   }
 
-  const csv = bytes.toString("utf8").replace(/^\uFEFF/, "");
-
-  if (!csv.trim()) {
-    throw new Error("Upstox instrument master CSV is empty.");
-  }
-
-  return csv;
+  return Promise.resolve(bytes);
 }
 
 async function loadInstrumentMaster(force = false) {
-  const cacheIsFresh =
+  if (
+    !force &&
     cache.instruments.length > 0 &&
-    Date.now() - cache.loadedAt < CACHE_TTL_MS;
-
-  if (!force && cacheIsFresh) {
+    Date.now() - cache.loadedAt < CACHE_TTL_MS
+  ) {
     return cache.instruments;
   }
 
-  // Avoid duplicate downloads when several requests arrive together.
-  if (pendingLoad) {
-    return pendingLoad;
-  }
+  if (pendingLoad) return pendingLoad;
 
   pendingLoad = (async () => {
-    const csv = await downloadInstrumentCsv();
-    const lines = csv
-      .split(/\r?\n/)
-      .filter((line) => line.trim().length > 0);
+    const response = await axios.get(INSTRUMENT_MASTER_URL, {
+      responseType: "arraybuffer",
+      timeout: REQUEST_TIMEOUT_MS,
+      headers: {
+        Accept: "application/gzip, text/csv, */*",
+        "User-Agent": "AiTradeX/1.0",
+      },
+      maxContentLength: 100 * 1024 * 1024,
+      maxBodyLength: 100 * 1024 * 1024,
+    });
+
+    const bytes = await decodeResponseBody(response.data);
+    const csv = bytes.toString("utf8").replace(/^\uFEFF/, "");
+    const lines = csv.split(/\r?\n/).filter((line) => line.trim().length > 0);
 
     if (lines.length < 2) {
-      throw new Error(
-        "Upstox instrument master must contain a header and data rows."
-      );
+      throw new Error("Upstox instrument master is empty or has no data rows.");
     }
 
     const headers = parseCsvLine(lines[0]).map(normalizeHeader);
-
-    const columns = {
-      key: findColumn(headers, "instrument_key", "instrumentkey"),
-      tradingSymbol: findColumn(
+    const col = {
+      key: getColumnIndex(headers, "instrument_key", "instrumentkey"),
+      tradingSymbol: getColumnIndex(
         headers,
         "trading_symbol",
-        "tradingsymbol"
+        "tradingsymbol",
+        "trading_symbol_name"
       ),
-      name: findColumn(headers, "name", "instrument_name"),
-      segment: findColumn(headers, "segment"),
-      exchange: findColumn(headers, "exchange"),
-      instrumentType: findColumn(
+      name: getColumnIndex(headers, "name", "instrument_name", "company_name"),
+      segment: getColumnIndex(headers, "segment", "instrument_segment"),
+      exchange: getColumnIndex(headers, "exchange", "exchange_name"),
+      instrumentType: getColumnIndex(
         headers,
         "instrument_type",
-        "instrumenttype"
+        "instrumenttype",
+        "instrument_type_name",
+        "type"
       ),
-      isin: findColumn(headers, "isin"),
-      lotSize: findColumn(headers, "lot_size", "lotsize"),
+      isin: getColumnIndex(headers, "isin"),
+      lotSize: getColumnIndex(headers, "lot_size", "lotsize"),
+      tickSize: getColumnIndex(headers, "tick_size", "ticksize"),
+      exchangeToken: getColumnIndex(headers, "exchange_token", "exchangetoken"),
+      lastPrice: getColumnIndex(headers, "last_price", "ltp"),
     };
 
-    // Segment and instrument_type can be absent in some CSV variants.
-    // The segment can be inferred from the instrument key.
+    // Segment is intentionally optional because the current complete master
+    // often encodes NSE_EQ/BSE_EQ/NSE_INDEX/BSE_INDEX in instrument_key.
     for (const required of ["key", "tradingSymbol"]) {
-      if (columns[required] < 0) {
+      if (col[required] < 0) {
         throw new Error(
           `Upstox instrument master is missing the ${required} column. ` +
-          `Received headers: ${headers.join(", ")}`
+            `Received headers: ${headers.join(", ")}`
         );
       }
     }
@@ -293,61 +223,47 @@ async function loadInstrumentMaster(force = false) {
 
     for (let rowIndex = 1; rowIndex < lines.length; rowIndex += 1) {
       const cells = parseCsvLine(lines[rowIndex]);
+      const get = (key) =>
+        col[key] < 0 ? "" : String(cells[col[key]] ?? "").trim();
 
-      const instrumentKey = getCell(cells, columns.key);
-      const symbol = getCell(cells, columns.tradingSymbol);
+      const instrumentKey = get("key");
+      const symbol = get("tradingSymbol");
 
-      if (!instrumentKey || !symbol || seen.has(instrumentKey)) {
-        continue;
-      }
+      if (!instrumentKey || !symbol || seen.has(instrumentKey)) continue;
 
-      const rawSegment = getCell(cells, columns.segment);
-      const rawExchange = getCell(cells, columns.exchange);
-      const instrumentType = getCell(cells, columns.instrumentType);
+      const exchange = get("exchange");
+      const instrumentType = get("instrumentType");
+      const segment = inferSegment(
+        instrumentKey,
+        exchange,
+        instrumentType,
+        get("segment")
+      );
 
-      const segment =
-        rawSegment ||
-        inferSegment(instrumentKey, rawExchange, instrumentType);
-
-      // Never classify unknown segments as tradable equities.
-      if (!segment) {
-        continue;
-      }
+      if (!segment) continue;
 
       const index = isIndexInstrument({
         segment,
         instrumentType,
         instrumentKey,
       });
-
       const equity = isEquityShare({
         segment,
         instrumentType,
         instrumentKey,
       });
 
-      if (!index && !equity) {
-        continue;
-      }
-
-      // Skip rows with missing type unless the instrument key clearly
-      // identifies a supported index. This avoids false stock matches.
-      if (!instrumentType && !index) {
-        continue;
-      }
-
-      const exchange = getExchange(rawExchange, segment);
-
-      if (!exchange) {
-        continue;
-      }
-
-      const name = getCell(cells, columns.name) || symbol;
-      const isin = getCell(cells, columns.isin);
-      const lotSizeValue = getCell(cells, columns.lotSize);
-      const lotSize = Number(lotSizeValue);
+      if (!index && !equity) continue;
 
       seen.add(instrumentKey);
+
+      const resolvedExchange =
+        segment.startsWith("BSE") || normalize(exchange) === "BSE"
+          ? "BSE"
+          : "NSE";
+
+      const name = get("name") || symbol;
+      const isin = get("isin");
 
       instruments.push({
         instrumentKey,
@@ -355,41 +271,37 @@ async function loadInstrumentMaster(force = false) {
         symbol,
         trading_symbol: symbol,
         name,
-        exchange,
+        exchange: resolvedExchange,
         segment,
-        instrumentType: instrumentType || (index ? "INDEX" : "EQ"),
-        instrument_type: instrumentType || (index ? "INDEX" : "EQ"),
+        instrumentType: normalize(instrumentType) || (index ? "INDEX" : "EQ"),
+        instrument_type: normalize(instrumentType) || (index ? "INDEX" : "EQ"),
         isin: isin || null,
-        lotSize: Number.isFinite(lotSize) && lotSize > 0
-          ? lotSize
-          : null,
+        lotSize: safeNumber(get("lotSize")),
+        tickSize: safeNumber(get("tickSize")),
+        exchangeToken: get("exchangeToken") || null,
+        lastPrice: safeNumber(get("lastPrice")),
         category: index ? "index" : "stock",
       });
     }
 
-    if (!instruments.length) {
+    if (instruments.length === 0) {
       throw new Error(
-        "No supported NSE/BSE equity shares or indices were found. " +
-        `CSV headers: ${headers.join(", ")}`
+        "No NSE/BSE equity shares or supported indices were found in the " +
+          "Upstox instrument master. Check the CSV header and instrument_key values."
       );
     }
 
-    cache = {
-      loadedAt: Date.now(),
-      instruments,
-    };
+    const loadedAt = Date.now();
+    cache = { loadedAt, instruments };
 
     const stockCount = instruments.filter(
       (item) => item.category === "stock"
     ).length;
-
-    const indexCount = instruments.filter(
-      (item) => item.category === "index"
-    ).length;
+    const indexCount = instruments.length - stockCount;
 
     console.info(
       `[Upstox Instruments] Loaded ${instruments.length} instruments ` +
-      `(${stockCount} stocks, ${indexCount} indices).`
+        `(${stockCount} stocks, ${indexCount} indices) from master.`
     );
 
     return instruments;
@@ -398,19 +310,14 @@ async function loadInstrumentMaster(force = false) {
   try {
     return await pendingLoad;
   } catch (error) {
-    console.error(
-      "[Upstox Instruments] Failed to load instrument master:",
-      error.message
-    );
-
-    // Keep a previously loaded cache available if a forced refresh fails.
+    // Preserve the last good cache if a forced refresh fails.
     if (cache.instruments.length > 0) {
-      console.warn(
-        "[Upstox Instruments] Using previously cached instrument data."
+      console.error(
+        "[Upstox Instruments] Refresh failed; retaining previous cache:",
+        error.message
       );
       return cache.instruments;
     }
-
     throw error;
   } finally {
     pendingLoad = null;
@@ -425,54 +332,29 @@ async function searchInstruments({
   forceRefresh = false,
 } = {}) {
   const all = await loadInstrumentMaster(forceRefresh);
-
-  const searchQuery = String(query || "").trim().toLowerCase();
-  const selectedCategory = String(category || "all")
-    .trim()
-    .toLowerCase();
-  const selectedExchange = normalize(exchange);
-
+  const q = String(query ?? "").trim().toLowerCase();
+  const cat = String(category || "all").trim().toLowerCase();
+  const ex = normalize(exchange);
   const parsedLimit = Number.parseInt(limit, 10);
-  const maxLimit = Math.min(
+  const max = Math.min(
     Math.max(Number.isFinite(parsedLimit) ? parsedLimit : 100, 1),
     MAX_SEARCH_LIMIT
   );
 
-  if (!["all", "stock", "index"].includes(selectedCategory)) {
-    throw new Error(
-      "Invalid instrument category. Use all, stock, or index."
-    );
-  }
-
   let matches = all.filter((item) => {
-    if (
-      selectedCategory !== "all" &&
-      item.category !== selectedCategory
-    ) {
-      return false;
-    }
-
-    if (
-      selectedExchange &&
-      normalize(item.exchange) !== selectedExchange
-    ) {
-      return false;
-    }
-
-    if (!searchQuery) {
-      return true;
-    }
+    if (cat !== "all" && item.category !== cat) return false;
+    if (ex && normalize(item.exchange) !== ex) return false;
+    if (!q) return true;
 
     return (
-      item.symbol.toLowerCase().includes(searchQuery) ||
-      item.name.toLowerCase().includes(searchQuery) ||
-      item.instrumentKey.toLowerCase().includes(searchQuery) ||
-      String(item.isin || "").toLowerCase().includes(searchQuery)
+      item.symbol.toLowerCase().includes(q) ||
+      item.name.toLowerCase().includes(q) ||
+      item.instrumentKey.toLowerCase().includes(q) ||
+      String(item.isin || "").toLowerCase().includes(q)
     );
   });
 
-  // List indices first for the default unfiltered search.
-  if (!searchQuery && selectedCategory === "all") {
+  if (!q && cat === "all") {
     matches = [
       ...matches.filter((item) => item.category === "index"),
       ...matches.filter((item) => item.category === "stock"),
@@ -482,13 +364,21 @@ async function searchInstruments({
   return {
     success: true,
     source: "upstox-instrument-master",
-    updatedAt: new Date(cache.loadedAt).toISOString(),
+    updatedAt: cache.loadedAt
+      ? new Date(cache.loadedAt).toISOString()
+      : null,
     total: matches.length,
-    data: matches.slice(0, maxLimit),
+    data: matches.slice(0, max),
   };
+}
+
+function clearInstrumentMasterCache() {
+  cache = { loadedAt: 0, instruments: [] };
 }
 
 module.exports = {
   searchInstruments,
   loadInstrumentMaster,
+  clearInstrumentMasterCache,
+  inferSegment,
 };
