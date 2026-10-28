@@ -720,59 +720,60 @@ const getUserByFirebaseUid = async (
 };
 
 // ==========================================================
-// DELETE USER
+// DELETE USER ACCOUNT
 // DELETE /api/users/delete
+// Deletes Firebase Authentication account and MongoDB profile.
 // ==========================================================
 
-const deleteUser = async (
-  req,
-  res,
-) => {
+const deleteUser = async (req, res) => {
   try {
-    const firebaseUid =
-      req.user?.uid ||
-      req.user?.firebaseUid;
+    const firebaseUid = req.user?.uid || req.user?.firebaseUid;
 
     if (!firebaseUid) {
       return res.status(401).json({
         success: false,
-        message:
-          "Unauthorized.",
+        message: "Unauthorized. Firebase UID not found.",
       });
     }
 
-    const user =
-      await User.findOne({
-        firebaseUid,
-      });
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message:
-          "User not found.",
-      });
+    // Verify the Firebase account exists before starting.
+    try {
+      await admin.auth().getUser(firebaseUid);
+    } catch (error) {
+      if (error.code === "auth/user-not-found") {
+        return res.status(404).json({
+          success: false,
+          message: "Firebase account was not found.",
+        });
+      }
+      throw error;
     }
 
-    await User.deleteOne({
+    // Delete the Firebase Authentication account first.
+    await admin.auth().deleteUser(firebaseUid);
+
+    // Remove the user's MongoDB profile.
+    const result = await User.deleteOne({ firebaseUid });
+
+    console.log("ACCOUNT DELETION RESULT:", {
       firebaseUid,
+      firebaseDeleted: true,
+      mongoProfileDeleted: result.deletedCount === 1,
     });
 
     return res.status(200).json({
       success: true,
-      message:
-        "User deleted successfully.",
+      message: "Firebase account and MongoDB profile deleted.",
+      firebaseDeleted: true,
+      mongoProfileDeleted: result.deletedCount === 1,
     });
   } catch (error) {
-    console.error(
-      "DELETE USER ERROR:",
-      error,
-    );
+    console.error("DELETE USER ACCOUNT ERROR:", error);
 
     return res.status(500).json({
       success: false,
-      message:
-        "Failed to delete user.",
+      message: "Account deletion could not be completed.",
+      code: error.code || "ACCOUNT_DELETE_FAILED",
     });
   }
 };
