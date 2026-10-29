@@ -1,4 +1,6 @@
+const crypto = require("crypto");
 const User = require("../models/User");
+const coinService = require("../services/coin.service");
 const phoneOtpService = require("../services/phoneOtpService");
 const { firebaseAuth } = require("../config/firebaseAdmin");
 
@@ -92,6 +94,59 @@ const normalizeProfileImage = (profileImage, photoURL = "") => {
   );
 
   return candidate;
+};
+
+
+// ==========================================================
+// REFERRAL HELPERS
+// ==========================================================
+
+const generateReferralCode = async () => {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const code = `ATX${crypto.randomBytes(5).toString("hex").toUpperCase()}`;
+    const exists = await User.exists({ referralCode: code });
+    if (!exists) return code;
+  }
+  throw new Error("Unable to generate a unique referral code.");
+};
+
+const getVerifiedFirebaseUid = async (req) => {
+  const attachedUid =
+    req?.user?.uid ||
+    req?.user?.firebaseUid ||
+    req?.firebaseUser?.uid ||
+    req?.firebaseUser?.firebaseUid ||
+    req?.auth?.uid ||
+    req?.auth?.firebaseUid;
+
+  if (attachedUid) return String(attachedUid).trim();
+
+  const authorization = req?.headers?.authorization;
+  if (typeof authorization !== "string" || !authorization.startsWith("Bearer ")) {
+    return "";
+  }
+
+  const token = authorization.substring(7).trim();
+  if (!token) return "";
+
+  const decoded = await firebaseAuth.verifyIdToken(token, true);
+  return String(decoded.uid || "").trim();
+};
+
+const tryRewardReferral = async (firebaseUid) => {
+  try {
+    const result = await coinService.rewardReferralSignup({ firebaseUid });
+    if (result.rewarded) {
+      console.log("[Referral] Rewarded both users with 250 AiTradeX Coins:", firebaseUid);
+    }
+    return result;
+  } catch (error) {
+    // Signup should remain successful if a transient transaction issue occurs.
+    // Since referralRewardClaimed is not set unless the transaction commits,
+    // a retry of the user-sync endpoint can safely retry the reward.
+    console.error("[Referral] Reward processing failed:", error.message);
+    return { rewarded: false, reason: "RETRY_REQUIRED" };
+  }
 };
 
 // ==========================================================
@@ -278,6 +333,9 @@ exports.googleLogin = async (req, res) => {
       }
 
       user.fullName = fullName || user.fullName;
+      if (!user.referralCode) {
+        user.referralCode = await generateReferralCode();
+      }
       user.email = email;
       user.profileImage = profileImage || user.profileImage;
       user.emailVerified = emailVerified;
@@ -326,7 +384,7 @@ exports.googleLogin = async (req, res) => {
         email,
         phoneNumber: undefined,
         profileImage,
-        referralCode: "",
+        referralCode: await generateReferralCode(),
         referredBy: "",
         emailVerified,
         phoneVerified: false,
@@ -459,13 +517,17 @@ exports.createOrUpdateUser = async (req, res) => {
     // Required Firebase UID
     // ======================================================
 
-    if (
-      !firebaseUid ||
-      String(firebaseUid).trim() === ""
-    ) {
-      return res.status(400).json({
+    let authenticatedFirebaseUid = "";
+    try {
+      authenticatedFirebaseUid = await getVerifiedFirebaseUid(req);
+    } catch (tokenError) {
+      console.error("[UserSync] Firebase token verification failed:", tokenError.message);
+    }
+
+    if (!authenticatedFirebaseUid) {
+      return res.status(401).json({
         success: false,
-        message: "Firebase UID is required.",
+        message: "A valid Firebase ID token is required.",
       });
     }
 
@@ -487,8 +549,8 @@ exports.createOrUpdateUser = async (req, res) => {
     // Normalize Data
     // ======================================================
 
-    const normalizedFirebaseUid =
-      String(firebaseUid).trim();
+    // Identity comes from the verified Firebase token, never the request body.
+    const normalizedFirebaseUid = authenticatedFirebaseUid;
 
     const normalizedEmail =
       String(email)
@@ -520,6 +582,25 @@ exports.createOrUpdateUser = async (req, res) => {
 
     const normalizedReferredBy =
       normalizeReferralCode(referredBy);
+
+    // Referral codes are optional, but a supplied code must be valid.
+    if (normalizedReferredBy) {
+      const inviter = await User.findOne({ referralCode: normalizedReferredBy });
+      if (!inviter) {
+        return res.status(400).json({
+          success: false,
+          code: "INVALID_REFERRAL_CODE",
+          message: "This referral code is invalid. Check it and try again.",
+        });
+      }
+      if (inviter.firebaseUid === normalizedFirebaseUid) {
+        return res.status(400).json({
+          success: false,
+          code: "SELF_REFERRAL_NOT_ALLOWED",
+          message: "You cannot use your own referral code.",
+        });
+      }
+    }
 
     const providerValue =
       String(authProvider || "")
@@ -730,11 +811,10 @@ exports.createOrUpdateUser = async (req, res) => {
         profileImage:
           normalizedProfileImage,
 
-        referralCode:
-          normalizedReferralCode,
+        // Referral codes are generated by the server and cannot be chosen by clients.
+        referralCode: await generateReferralCode(),
 
-        referredBy:
-          normalizedReferredBy,
+        referredBy: normalizedReferredBy,
 
         emailVerified:
           normalizedEmailVerified,
@@ -758,6 +838,10 @@ exports.createOrUpdateUser = async (req, res) => {
       });
 
       await user.save();
+
+      if (user.referredBy) {
+        await tryRewardReferral(user.firebaseUid);
+      }
 
       console.log(
         "========================================",
@@ -903,11 +987,6 @@ exports.createOrUpdateUser = async (req, res) => {
         normalizedUsername;
     }
 
-    if (normalizedReferralCode) {
-      user.referralCode =
-        normalizedReferralCode;
-    }
-
     if (normalizedReferredBy) {
       user.referredBy =
         normalizedReferredBy;
@@ -920,6 +999,11 @@ exports.createOrUpdateUser = async (req, res) => {
     user.authProvider =
       normalizedAuthProvider;
 
+    if (!user.referralCode) {
+      user.referralCode = await generateReferralCode();
+    }
+
+    // Existing accounts cannot attach a referral after signup.
     if (firebaseCreatedAt) {
       const createdAt =
         parseFirebaseDate(
@@ -945,6 +1029,10 @@ exports.createOrUpdateUser = async (req, res) => {
     }
 
     await user.save();
+
+    if (user.referredBy && user.referralRewardClaimed !== true) {
+      await tryRewardReferral(user.firebaseUid);
+    }
 
     console.log(
       "========================================",
@@ -1093,6 +1181,20 @@ exports.getUserByFirebaseUid = async (
 
     const normalizedFirebaseUid =
       String(firebaseUid).trim();
+
+    let authenticatedUid = "";
+    try {
+      authenticatedUid = await getVerifiedFirebaseUid(req);
+    } catch (tokenError) {
+      console.error("[GetUser] Firebase token verification failed:", tokenError.message);
+    }
+
+    if (!authenticatedUid || authenticatedUid !== normalizedFirebaseUid) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only retrieve your own profile.",
+      });
+    }
 
     console.log(
       "Firebase UID:",

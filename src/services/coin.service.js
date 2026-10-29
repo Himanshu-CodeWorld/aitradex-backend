@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const CoinWallet = require("../models/CoinWallet");
 const CoinTransaction = require("../models/CoinTransaction");
 const CoinStockUnlock = require("../models/CoinStockUnlock");
+const User = require("../models/User");
 
 const STOCK_UNLOCK_COST = 100;
 const COIN_RUPEE_VALUE = 1;
@@ -286,6 +287,98 @@ const unlockStock = async ({ firebaseUid, symbol }) => {
   }
 };
 
+
+/**
+ * Award referral signup coins exactly once.
+ * Both users receive 250 Coins in one MongoDB transaction.
+ */
+const REFERRAL_REWARD_COINS = 250;
+
+const rewardReferralSignup = async ({ firebaseUid }) => {
+  const normalizedUid = String(firebaseUid || "").trim();
+  if (!normalizedUid) throw new Error("Firebase UID is required.");
+
+  const session = await mongoose.startSession();
+  try {
+    let result = { rewarded: false, reason: "NO_REFERRAL" };
+
+    await session.withTransaction(async () => {
+      const newUser = await User.findOne({ firebaseUid: normalizedUid }).session(session);
+      if (!newUser) throw new Error("New referral user was not found.");
+
+      const referralCode = String(newUser.referredBy || "").trim().toUpperCase();
+      if (!referralCode) {
+        result = { rewarded: false, reason: "NO_REFERRAL" };
+        return;
+      }
+      if (newUser.referralRewardClaimed === true) {
+        result = { rewarded: false, reason: "ALREADY_REWARDED" };
+        return;
+      }
+
+      const inviter = await User.findOne({ referralCode }).session(session);
+      if (!inviter) throw new Error("Referral code is invalid.");
+      if (inviter.firebaseUid === normalizedUid) {
+        throw new Error("You cannot use your own referral code.");
+      }
+
+      const claimedUser = await User.findOneAndUpdate(
+        { _id: newUser._id, referralRewardClaimed: { $ne: true }, referredBy: referralCode },
+        { $set: { referralRewardClaimed: true } },
+        { new: true, session },
+      );
+      if (!claimedUser) {
+        result = { rewarded: false, reason: "ALREADY_REWARDED" };
+        return;
+      }
+
+      const newWallet = await getOrCreateWallet(normalizedUid, { session });
+      const inviterWallet = await getOrCreateWallet(inviter.firebaseUid, { session });
+
+      newWallet.balance += REFERRAL_REWARD_COINS;
+      inviterWallet.balance += REFERRAL_REWARD_COINS;
+      await newWallet.save({ session });
+      await inviterWallet.save({ session });
+
+      await CoinTransaction.create([
+        {
+          firebaseUid: normalizedUid,
+          type: "credit",
+          amount: REFERRAL_REWARD_COINS,
+          balanceAfter: newWallet.balance,
+          amountInr: REFERRAL_REWARD_COINS * COIN_RUPEE_VALUE,
+          description: "Referral signup bonus",
+          referenceId: String(inviter._id),
+        },
+        {
+          firebaseUid: inviter.firebaseUid,
+          type: "credit",
+          amount: REFERRAL_REWARD_COINS,
+          balanceAfter: inviterWallet.balance,
+          amountInr: REFERRAL_REWARD_COINS * COIN_RUPEE_VALUE,
+          description: "Friend joined using your referral code",
+          referenceId: String(newUser._id),
+        },
+      ], { session });
+
+      inviter.referralCount = (Number(inviter.referralCount) || 0) + 1;
+      await inviter.save({ session });
+
+      result = {
+        rewarded: true,
+        coins: REFERRAL_REWARD_COINS,
+        newUserBalance: newWallet.balance,
+        inviterBalance: inviterWallet.balance,
+      };
+    });
+
+    return result;
+  } finally {
+    await session.endSession();
+  }
+};
+
+
 const hasStockUnlock = async ({ firebaseUid, symbol }) => {
   const normalizedSymbol = String(symbol || "").trim().toUpperCase();
 
@@ -343,4 +436,6 @@ module.exports = {
   unlockStock,
   hasStockUnlock,
   getHistory,
+  REFERRAL_REWARD_COINS,
+  rewardReferralSignup,
 };

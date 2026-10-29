@@ -1,46 +1,15 @@
 const express = require("express");
-
-const router = express.Router();
-
-const authMiddleware = require("../middleware/auth.middleware");
-
+const firebaseAuth = require("../middleware/firebaseAuth.middleware");
 const {
   createOrUpdateUser,
   getUserByFirebaseUid,
-  deleteUser,
-} = require("../controllers/user.controller");
+} = require("../controllers/auth.controller");
 
-// ==========================================================
-// CREATE / UPDATE USER
-// POST /api/users
-// ==========================================================
+const router = express.Router();
 
-router.post(
-  "/",
-  authMiddleware,
-  createOrUpdateUser,
-);
-
-// ==========================================================
-// GET USER
-// GET /api/users/firebase/:firebaseUid
-// ==========================================================
-
-router.get(
-  "/firebase/:firebaseUid",
-  authMiddleware,
-  getUserByFirebaseUid,
-);
-
-// ==========================================================
-// DELETE USER
-// DELETE /api/users/delete
-// ==========================================================
-
-router.delete(
-  "/delete",
-  authMiddleware,
-  deleteUser,
-);
+// Mount this router at /api/users.
+// Flutter POSTs to /api/users and GETs /api/users/firebase/:firebaseUid.
+router.post("/", firebaseAuth, createOrUpdateUser);
+router.get("/firebase/:firebaseUid", firebaseAuth, getUserByFirebaseUid);
 
 module.exports = router;
