@@ -2,66 +2,24 @@ const express = require("express");
 
 const router = express.Router();
 
+// Phone OTP handlers remain in the existing auth controller.
 const {
-  googleLogin,
   sendPhoneOtp,
   verifyPhoneOtp,
   resendPhoneOtp,
 } = require("../controllers/auth.controller");
 
-// ==========================================================
-// AUTH ROUTES
-// ==========================================================
+// Google profile synchronization has its own controller.
+const { googleAuth } = require("../controllers/googleAuth.controller");
+const firebaseAuthMiddleware = require("../middleware/firebaseAuth.middleware");
 
-console.log("");
-console.log("====================================");
-console.log("Auth Routes Loaded");
-console.log("====================================");
+console.log("[AuthRoutes] Auth routes loaded");
 
-// ==========================================================
-// GOOGLE LOGIN
-// POST /api/auth/google
-//
-// Flutter sends:
-// Authorization: Bearer <Firebase ID Token>
-//
-// Backend verifies the Firebase ID token with Firebase Admin,
-// then creates/updates the MongoDB user.
-// ==========================================================
+// Flutter sends a Firebase ID token in Authorization: Bearer <token>.
+router.post("/google", firebaseAuthMiddleware, googleAuth);
 
-router.post(
-  "/google",
-  googleLogin,
-);
-
-// ==========================================================
-// SEND PHONE OTP
-// POST /api/auth/send-phone-otp
-// ==========================================================
-
-router.post(
-  "/send-phone-otp",
-  sendPhoneOtp,
-);
-
-// ==========================================================
-// VERIFY PHONE OTP
-// POST /api/auth/verify-phone-otp
-// ==========================================================
-
-router.post(
-  "/verify-phone-otp",
-  verifyPhoneOtp,
-);
-
-// ==========================================================
-// RESEND PHONE OTP
-// POST /api/auth/resend-phone-otp
-// ==========================================================
-
-router.post(
-  "/resend-phone-otp",
-  resendPhoneOtp,
-);
+router.post("/send-phone-otp", sendPhoneOtp);
+router.post("/verify-phone-otp", verifyPhoneOtp);
+router.post("/resend-phone-otp", resendPhoneOtp);
 
 module.exports = router;
