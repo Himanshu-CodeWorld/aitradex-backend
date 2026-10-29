@@ -1,4 +1,5 @@
-// ==========================================================
+
+ // ==========================================================
 // AiTradeX - Upstox Report Service
 // ==========================================================
 //
@@ -7,10 +8,9 @@
 // ==========================================================
 
 const axios = require("axios");
-<<<<<<< HEAD
-const { loadInstrumentMaster } = require("./upstox.instruments.service");
-=======
->>>>>>> 0026497 (FIX Google AUth)
+const {
+  loadInstrumentMaster,
+} = require("./upstox.instruments.service");
 
 const { UPSTOX_CONFIG } = require("./upstox.config");
 const {
@@ -20,8 +20,14 @@ const {
 const marketService = new UpstoxMarketService();
 const REQUEST_TIMEOUT = 15000;
 
+// ==========================================================
+// Helpers
+// ==========================================================
+
 const asNumber = (value) => {
-  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
 
   const parsed = Number(
     String(value ?? "")
@@ -52,21 +58,42 @@ const daysAgo = (days) => {
 
 const today = () => toIsoDate(new Date());
 
+// ==========================================================
+// Upstox Report Service
+// ==========================================================
+
 class UpstoxReportService {
   getAccessToken() {
     return marketService.getAccessToken();
   }
 
   async get(path, params = {}) {
-    return this._getFromBase(UPSTOX_CONFIG.apiBaseUrl, path, params);
+    return this._getFromBase(
+      UPSTOX_CONFIG.apiBaseUrl,
+      path,
+      params
+    );
   }
 
   async getMarketApi(path, params = {}) {
-    return this._getFromBase(UPSTOX_CONFIG.marketApiBaseUrl, path, params);
+    return this._getFromBase(
+      UPSTOX_CONFIG.marketApiBaseUrl,
+      path,
+      params
+    );
   }
 
   async _getFromBase(baseUrl, path, params = {}) {
     const token = this.getAccessToken();
+
+    if (!token) {
+      const error = new Error(
+        "Upstox access token is unavailable. Please authenticate with Upstox."
+      );
+      error.statusCode = 401;
+      error.code = "UPSTOX_TOKEN_INVALID";
+      throw error;
+    }
 
     try {
       const response = await axios.get(
@@ -84,6 +111,10 @@ class UpstoxReportService {
 
       return response.data;
     } catch (error) {
+      if (error.statusCode && !error.response) {
+        throw error;
+      }
+
       const status = error.response?.status;
       const body = error.response?.data;
 
@@ -110,29 +141,44 @@ class UpstoxReportService {
     }
   }
 
+  // ========================================================
+  // Resolve Stock Instrument
+  // ========================================================
+
   async resolveInstrument({ symbol, instrumentKey, isin }) {
     const cleanSymbol = stringValue(symbol).toUpperCase();
     const cleanKey = stringValue(instrumentKey);
     const cleanIsin = stringValue(isin).toUpperCase();
 
+    // If Flutter sends an instrument key, enrich it with
+    // metadata from the backend instrument master.
     if (cleanKey) {
-<<<<<<< HEAD
-      // Resolve metadata from the same instrument master used by market data.
-      // Flutter may send only instrument_key, while Upstox quote maps use symbols.
-      const instruments = await loadInstrumentMaster();
-      const match = instruments.find((item) => item.instrumentKey === cleanKey);
+      let match = null;
+
+      try {
+        const instruments = await loadInstrumentMaster();
+
+        match = Array.isArray(instruments)
+          ? instruments.find(
+              (item) => item.instrumentKey === cleanKey
+            )
+          : null;
+      } catch (error) {
+        // The provided instrument key remains usable even if
+        // the optional instrument-master lookup fails.
+        console.warn(
+          "[UpstoxReportService] Instrument metadata lookup failed:",
+          error.message
+        );
+      }
+
       return {
         instrumentKey: cleanKey,
         isin: cleanIsin || stringValue(match?.isin),
         symbol: cleanSymbol || stringValue(match?.symbol),
-        name: stringValue(match?.name || match?.symbol || cleanSymbol),
-=======
-      return {
-        instrumentKey: cleanKey,
-        isin: cleanIsin,
-        symbol: cleanSymbol,
-        name: cleanSymbol,
->>>>>>> 0026497 (FIX Google AUth)
+        name: stringValue(
+          match?.name || match?.symbol || cleanSymbol
+        ),
       };
     }
 
@@ -152,7 +198,9 @@ class UpstoxReportService {
       records: 30,
     });
 
-    const rows = Array.isArray(response?.data) ? response.data : [];
+    const rows = Array.isArray(response?.data)
+      ? response.data
+      : [];
 
     const exact = rows.find(
       (row) =>
@@ -160,7 +208,8 @@ class UpstoxReportService {
         row?.instrument_type === "EQ" &&
         (cleanIsin
           ? String(row.isin || "").toUpperCase() === cleanIsin
-          : String(row.trading_symbol || "").toUpperCase() === cleanSymbol)
+          : String(row.trading_symbol || "").toUpperCase() ===
+            cleanSymbol)
     );
 
     const equity =
@@ -183,33 +232,51 @@ class UpstoxReportService {
     return {
       instrumentKey: equity.instrument_key,
       isin: stringValue(equity.isin || cleanIsin),
-      symbol: stringValue(equity.trading_symbol || cleanSymbol),
-      name: stringValue(equity.name || equity.trading_symbol || cleanSymbol),
+      symbol: stringValue(
+        equity.trading_symbol || cleanSymbol
+      ),
+      name: stringValue(
+        equity.name || equity.trading_symbol || cleanSymbol
+      ),
     };
   }
 
+  // ========================================================
+  // Parse Latest Market Price
+  // ========================================================
+
   parseLtp(response, instrumentKey, symbol) {
     const data = response?.data || {};
-<<<<<<< HEAD
+
     const direct =
       data[instrumentKey] ||
       data[encodeURIComponent(instrumentKey)];
+
     const wantedSymbol = stringValue(symbol).toUpperCase();
-    const matchingEntry = Object.entries(data).find(([responseKey, quote]) => {
-      const keySymbol = String(responseKey).split(":").slice(1).join(":").trim().toUpperCase();
-      const quoteSymbol = stringValue(
-        quote?.trading_symbol || quote?.tradingSymbol || quote?.symbol
-      ).toUpperCase();
-      return (wantedSymbol && keySymbol === wantedSymbol) ||
-        (wantedSymbol && quoteSymbol === wantedSymbol);
-    });
+
+    const matchingEntry = Object.entries(data).find(
+      ([responseKey, quote]) => {
+        const keySymbol = String(responseKey)
+          .split(":")
+          .slice(1)
+          .join(":")
+          .trim()
+          .toUpperCase();
+
+        const quoteSymbol = stringValue(
+          quote?.trading_symbol ||
+            quote?.tradingSymbol ||
+            quote?.symbol
+        ).toUpperCase();
+
+        return (
+          (wantedSymbol && keySymbol === wantedSymbol) ||
+          (wantedSymbol && quoteSymbol === wantedSymbol)
+        );
+      }
+    );
+
     const raw = direct || matchingEntry?.[1] || {};
-=======
-    const raw =
-      data[instrumentKey] ||
-      data[encodeURIComponent(instrumentKey)] ||
-      {};
->>>>>>> 0026497 (FIX Google AUth)
 
     const lastPrice = asNumber(
       raw.last_price ?? raw.lastPrice ?? raw.ltp
@@ -249,12 +316,18 @@ class UpstoxReportService {
         : changePercent,
       volume: Math.round(
         asNumber(
-          raw.volume ?? raw.total_volume ?? raw.volume_traded
+          raw.volume ??
+            raw.total_volume ??
+            raw.volume_traded
         )
       ),
       ltq: Math.round(asNumber(raw.ltq)),
     };
   }
+
+  // ========================================================
+  // Parse Historical Candles
+  // ========================================================
 
   parseHistory(response) {
     const candles = Array.isArray(response?.data?.candles)
@@ -280,10 +353,15 @@ class UpstoxReportService {
       );
   }
 
+  // ========================================================
+  // Historical Returns
+  // ========================================================
+
   historyReturn(candles, days) {
     if (candles.length < 2) return null;
 
     const latest = candles[candles.length - 1];
+
     const target =
       new Date(latest.timestamp).getTime() -
       days * 24 * 60 * 60 * 1000;
@@ -291,7 +369,9 @@ class UpstoxReportService {
     let base = candles[0];
 
     for (const candle of candles) {
-      if (new Date(candle.timestamp).getTime() <= target) {
+      if (
+        new Date(candle.timestamp).getTime() <= target
+      ) {
         base = candle;
       } else {
         break;
@@ -303,6 +383,10 @@ class UpstoxReportService {
     return ((latest.close - base.close) / base.close) * 100;
   }
 
+  // ========================================================
+  // Average Trading Volume
+  // ========================================================
+
   averageVolume(candles, days) {
     if (!candles.length) return null;
 
@@ -310,7 +394,8 @@ class UpstoxReportService {
       candles[candles.length - 1].timestamp
     ).getTime();
 
-    const cutoff = latestTime - days * 24 * 60 * 60 * 1000;
+    const cutoff =
+      latestTime - days * 24 * 60 * 60 * 1000;
 
     const selected = candles.filter(
       (candle) =>
@@ -321,11 +406,16 @@ class UpstoxReportService {
 
     return Math.round(
       selected.reduce(
-        (sum, candle) => sum + asNumber(candle.volume),
+        (sum, candle) =>
+          sum + asNumber(candle.volume),
         0
       ) / selected.length
     );
   }
+
+  // ========================================================
+  // Parse Income Statements
+  // ========================================================
 
   parseIncome(response) {
     const statements =
@@ -372,6 +462,10 @@ class UpstoxReportService {
     return output;
   }
 
+  // ========================================================
+  // Parse Financial Ratios
+  // ========================================================
+
   parseRatios(response) {
     const rows = Array.isArray(response?.data)
       ? response.data
@@ -400,7 +494,10 @@ class UpstoxReportService {
         output.sectorPe = sector || null;
       } else if (name.includes("p/b") || name === "pb") {
         output.pb = value;
-      } else if (name === "roe" || name.includes("return on equity")) {
+      } else if (
+        name === "roe" ||
+        name.includes("return on equity")
+      ) {
         output.roe = value;
       } else if (name === "roce") {
         output.roce = value;
@@ -415,6 +512,10 @@ class UpstoxReportService {
     return output;
   }
 
+  // ========================================================
+  // Parse Shareholding
+  // ========================================================
+
   parseShareholding(response) {
     const rows = Array.isArray(response?.data)
       ? response.data
@@ -426,6 +527,7 @@ class UpstoxReportService {
 
     for (const row of rows) {
       const category = stringValue(row?.category);
+
       const history = Array.isArray(row?.history)
         ? row.history
         : [];
@@ -458,6 +560,10 @@ class UpstoxReportService {
     };
   }
 
+  // ========================================================
+  // Build Complete Stock Report
+  // ========================================================
+
   async getReport({ symbol, instrumentKey, isin }) {
     const instrument = await this.resolveInstrument({
       symbol,
@@ -467,8 +573,8 @@ class UpstoxReportService {
 
     let resolvedIsin = instrument.isin;
 
-    // An instrument key supplied by Flutter may not contain an ISIN.
-    // Resolve it once so fundamentals can still be loaded.
+    // Resolve ISIN when the supplied instrument key did not
+    // contain one, so that fundamentals can still be loaded.
     if (!resolvedIsin) {
       const search = await this.get("/instruments/search", {
         query: instrument.instrumentKey,
@@ -489,9 +595,12 @@ class UpstoxReportService {
     const key = instrument.instrumentKey;
     const encodedIsin = encodeURIComponent(resolvedIsin);
 
-    const ltpPromise = this.getMarketApi("/market-quote/ltp", {
-      instrument_key: key,
-    });
+    const ltpPromise = this.getMarketApi(
+      "/market-quote/ltp",
+      {
+        instrument_key: key,
+      }
+    );
 
     const historyPromise = this.getMarketApi(
       `/historical-candle/${encodeURIComponent(key)}/days/1/${today()}/${daysAgo(370)}`
@@ -515,9 +624,15 @@ class UpstoxReportService {
               fs: false,
             }
           ),
-          this.get(`/fundamentals/${encodedIsin}/key-ratios`),
-          this.get(`/fundamentals/${encodedIsin}/share-holdings`),
-          this.get(`/fundamentals/${encodedIsin}/profile`),
+          this.get(
+            `/fundamentals/${encodedIsin}/key-ratios`
+          ),
+          this.get(
+            `/fundamentals/${encodedIsin}/share-holdings`
+          ),
+          this.get(
+            `/fundamentals/${encodedIsin}/profile`
+          ),
         ]
       : [
           Promise.resolve({ data: {} }),
@@ -542,23 +657,55 @@ class UpstoxReportService {
     ]);
 
     const candles = this.parseHistory(historyResponse);
-    const ltp = this.parseLtp(ltpResponse, key, instrument.symbol);
+    const ltp = this.parseLtp(
+      ltpResponse,
+      key,
+      instrument.symbol
+    );
+
     const yearly = this.parseIncome(yearlyIncomeResponse);
-    const quarterly = this.parseIncome(quarterlyIncomeResponse);
+    const quarterly = this.parseIncome(
+      quarterlyIncomeResponse
+    );
+
     const profile = profileResponse?.data || {};
 
     const returns = [
-      { period: "1M", value: this.historyReturn(candles, 30) },
-      { period: "3M", value: this.historyReturn(candles, 90) },
-      { period: "6M", value: this.historyReturn(candles, 180) },
-      { period: "1Y", value: this.historyReturn(candles, 365) },
+      {
+        period: "1M",
+        value: this.historyReturn(candles, 30),
+      },
+      {
+        period: "3M",
+        value: this.historyReturn(candles, 90),
+      },
+      {
+        period: "6M",
+        value: this.historyReturn(candles, 180),
+      },
+      {
+        period: "1Y",
+        value: this.historyReturn(candles, 365),
+      },
     ];
 
     const volumes = [
-      { period: "1M", value: this.averageVolume(candles, 30) },
-      { period: "3M", value: this.averageVolume(candles, 90) },
-      { period: "6M", value: this.averageVolume(candles, 180) },
-      { period: "1Y", value: this.averageVolume(candles, 365) },
+      {
+        period: "1M",
+        value: this.averageVolume(candles, 30),
+      },
+      {
+        period: "3M",
+        value: this.averageVolume(candles, 90),
+      },
+      {
+        period: "6M",
+        value: this.averageVolume(candles, 180),
+      },
+      {
+        period: "1Y",
+        value: this.averageVolume(candles, 365),
+      },
     ];
 
     return {
@@ -571,7 +718,9 @@ class UpstoxReportService {
         isin: resolvedIsin,
         name: instrument.name,
         sector: stringValue(profile.sector),
-        companyProfile: stringValue(profile.company_profile),
+        companyProfile: stringValue(
+          profile.company_profile
+        ),
         quote: ltp,
         financials: {
           yearlyRevenue: yearly.revenue,
@@ -582,7 +731,9 @@ class UpstoxReportService {
           netProfit: yearly.netProfit,
         },
         ratios: this.parseRatios(ratiosResponse),
-        shareholding: this.parseShareholding(shareholdingResponse),
+        shareholding: this.parseShareholding(
+          shareholdingResponse
+        ),
         returns,
         volumes,
         updatedAt: new Date().toISOString(),
@@ -590,5 +741,9 @@ class UpstoxReportService {
     };
   }
 }
+
+// ==========================================================
+// Export Service
+// ==========================================================
 
 module.exports = new UpstoxReportService();
