@@ -254,7 +254,7 @@ console.log(
 
 console.log(
   `🎁 Referral Reward: ${
-    Number(process.env.REFERRAL_REWARD_COINS) || 100
+    Number(process.env.REFERRAL_REWARD_COINS) || 250
   } Coins`
 );
 
@@ -742,7 +742,7 @@ const validateEnvironment = () => {
 
   if (!process.env.REFERRAL_REWARD_COINS) {
     console.log(
-      "ℹ️ REFERRAL_REWARD_COINS not configured. Default: 100"
+      "ℹ️ REFERRAL_REWARD_COINS not configured. Default: 250"
     );
   }
 

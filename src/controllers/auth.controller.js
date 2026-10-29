@@ -1205,17 +1205,22 @@ exports.getUserByFirebaseUid = async (
     // Find User
     // ======================================================
 
-    const user =
-      await User.findOne({
-        firebaseUid:
-          normalizedFirebaseUid,
-      });
+    let user = await User.findOne({
+      firebaseUid: normalizedFirebaseUid,
+    });
+
+    // Repair legacy profiles that were created before referral codes
+    // were added. The code is generated only on the server.
+    if (user && !user.referralCode) {
+      user.referralCode = await generateReferralCode();
+      await user.save();
+    }
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message:
-          "User not found in MongoDB.",
+        code: "USER_PROFILE_NOT_FOUND",
+        message: "Your AiTradeX profile was not found. Please complete signup or sign in again.",
       });
     }
 
