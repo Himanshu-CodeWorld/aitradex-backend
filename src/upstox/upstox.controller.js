@@ -1,390 +1,170 @@
-// ==========================================================
-// AiTradeX - Upstox Controller
-// ==========================================================
 
 const upstoxService = require("./upstox.service");
 const { setAccessToken } = require("./upstox.token.store");
 
-// ==========================================================
-// Upstox Controller
-// ==========================================================
+const STATE_COOKIE = "upstox_oauth_state";
+
+const COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax",
+  maxAge: 10 * 60 * 1000,
+  path: "/",
+};
+
+function appRedirectUri() {
+  return (
+    process.env.UPSTOX_APP_REDIRECT_URI ||
+    "aitradex://upstox-callback"
+  );
+}
+
+function redirectToApp(res, params) {
+  const target = new URL(appRedirectUri());
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") {
+      target.searchParams.set(key, String(value));
+    }
+  }
+
+  return res.redirect(302, target.toString());
+}
 
 class UpstoxController {
-  // ========================================================
-  // Start Upstox Login
-  // ========================================================
-
   async login(req, res) {
     try {
-      // ----------------------------------------------------
-      // Generate secure OAuth state
-      // ----------------------------------------------------
+      const state = upstoxService.generateState();
 
-      const state =
-        upstoxService.generateState();
-
-      // ----------------------------------------------------
-      // Store state in secure HTTP-only cookie
-      // ----------------------------------------------------
-
-      res.cookie(
-        "upstox_oauth_state",
-        state,
-        {
-          httpOnly: true,
-
-          secure:
-            process.env.NODE_ENV ===
-            "production",
-
-          sameSite: "lax",
-
-          maxAge: 10 * 60 * 1000,
-
-          path: "/",
-        }
-      );
-
-      // ----------------------------------------------------
-      // Generate Upstox authorization URL
-      // ----------------------------------------------------
+      res.cookie(STATE_COOKIE, state, COOKIE_OPTIONS);
 
       const authorizationUrl =
-        upstoxService.getAuthorizationUrl(
-          state
-        );
+        upstoxService.getAuthorizationUrl(state);
 
-      console.log("");
-      console.log(
-        "========================================"
-      );
-      console.log(
-        "📈 UPSTOX OAUTH STARTED"
-      );
-      console.log(
-        "========================================"
-      );
-      console.log(
-        "Redirect URI:",
-        process.env.UPSTOX_REDIRECT_URI
-      );
-      console.log(
-        "========================================"
-      );
-      console.log("");
-
-      // ----------------------------------------------------
-      // Redirect user to Upstox
-      // ----------------------------------------------------
-
-      return res.redirect(
-        authorizationUrl
-      );
+      return res.redirect(302, authorizationUrl);
     } catch (error) {
-      console.error("");
       console.error(
-        "========================================"
-      );
-      console.error(
-        "❌ UPSTOX LOGIN ERROR"
-      );
-      console.error(
-        "========================================"
-      );
-      console.error(
-        "Message:",
+        "[Upstox OAuth] Login error:",
         error.message
       );
-      console.error(
-        "========================================"
-      );
-      console.error("");
 
       return res.status(500).json({
         success: false,
         message:
-          "Unable to start Upstox authentication.",
+          "Unable to start Upstox authentication. Check server OAuth configuration.",
       });
     }
   }
 
-  // ========================================================
-  // Upstox OAuth Callback
-  // ========================================================
-
   async callback(req, res) {
+    const {
+      code,
+      state,
+      error,
+    } = req.query;
+
     try {
-      const {
-        code,
-        state,
-        error,
-        error_description,
-      } = req.query;
-
-      // ----------------------------------------------------
-      // Handle Upstox OAuth error
-      // ----------------------------------------------------
-
       if (error) {
-        console.error(
-          "Upstox OAuth error:",
-          error,
-          error_description || ""
+        res.clearCookie(STATE_COOKIE, COOKIE_OPTIONS);
+
+        return redirectToApp(res, {
+          status: "error",
+          broker: "upstox",
+          message: "Upstox authorization was cancelled or denied.",
+        });
+      }
+
+      if (typeof code !== "string" || !code.trim()) {
+        return res.status(400).send(
+          "Upstox authorization code is missing. Return to AiTradeX and try again."
         );
-
-        return res.status(400).json({
-          success: false,
-          message:
-            "Upstox authentication was cancelled or failed.",
-          error,
-          errorDescription:
-            error_description || null,
-        });
       }
 
-      // ----------------------------------------------------
-      // Validate authorization code
-      // ----------------------------------------------------
+      const savedState = req.cookies?.[STATE_COOKIE];
 
-      if (!code) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Authorization code is missing.",
-        });
-      }
+      if (
+        typeof state !== "string" ||
+        !savedState ||
+        state !== savedState
+      ) {
+        res.clearCookie(STATE_COOKIE, COOKIE_OPTIONS);
 
-      // ----------------------------------------------------
-      // Validate returned state
-      // ----------------------------------------------------
-
-      const savedState =
-        req.cookies?.upstox_oauth_state;
-
-      if (!state) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "OAuth state is missing.",
-        });
-      }
-
-      if (!savedState) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "OAuth session expired. Please try again.",
-        });
-      }
-
-      if (state !== savedState) {
-        console.error(
-          "❌ Upstox OAuth state mismatch"
+        return res.status(400).send(
+          "Upstox OAuth state validation failed or expired. Return to AiTradeX and try again."
         );
-
-        return res.status(400).json({
-          success: false,
-          message:
-            "Invalid OAuth state.",
-        });
       }
 
-      // ----------------------------------------------------
-      // Clear OAuth state cookie
-      // ----------------------------------------------------
-
-      res.clearCookie(
-        "upstox_oauth_state",
-        {
-          httpOnly: true,
-
-          secure:
-            process.env.NODE_ENV ===
-            "production",
-
-          sameSite: "lax",
-
-          path: "/",
-        }
-      );
-
-      // ----------------------------------------------------
-      // Exchange code for access token
-      // ----------------------------------------------------
+      res.clearCookie(STATE_COOKIE, COOKIE_OPTIONS);
 
       const tokenData =
-        await upstoxService.exchangeCodeForToken(
-          code
-        );
+        await upstoxService.exchangeCodeForToken(code);
 
       if (!tokenData?.access_token) {
-        console.error(
-          "Upstox token response:",
-          tokenData
-        );
-
-        return res.status(502).json({
-          success: false,
-          message:
-            "Upstox did not return an access token.",
+        return redirectToApp(res, {
+          status: "error",
+          broker: "upstox",
+          message: "Upstox did not return an access token.",
         });
       }
 
-      // ----------------------------------------------------
-      // Verify access token
-      // ----------------------------------------------------
-
-      let profileData = null;
+      let profileData;
 
       try {
-        profileData =
-          await upstoxService.getUserProfile(
-            tokenData.access_token
-          );
+        profileData = await upstoxService.getUserProfile(
+          tokenData.access_token
+        );
       } catch (profileError) {
         console.error(
-          "Unable to verify Upstox access token:",
+          "[Upstox OAuth] Profile verification failed:",
           profileError.response?.data ||
             profileError.message
         );
 
-        return res.status(502).json({
-          success: false,
+        return redirectToApp(res, {
+          status: "error",
+          broker: "upstox",
           message:
-            "Upstox authentication succeeded, but the access token could not be verified.",
+            "Authorization received, but the Upstox profile could not be verified.",
         });
       }
 
-      // ----------------------------------------------------
-      // Cache the verified token for immediate market-data use
-      // ----------------------------------------------------
-      //
-      // The token remains server-side and is never returned to
-      // Flutter/browser.
-      //
-      // For production multi-user deployments, replace this
-      // runtime cache with encrypted per-user persistence.
-      // ----------------------------------------------------
-
+      // IMPORTANT:
+      // This is a process-level token cache.
+      // For multi-user production, store tokens encrypted
+      // and associate them with the authenticated AiTradeX user.
       setAccessToken(
         tokenData.access_token,
         tokenData.expires_in
       );
 
-      // ----------------------------------------------------
-      // IMPORTANT
-      // ----------------------------------------------------
-      //
-      // DO NOT return access_token to browser.
-      //
-      // The token will be stored securely on the backend
-      // in the next step.
-      //
-      // ----------------------------------------------------
+      const profile = profileData?.data || profileData || {};
 
-      console.log("");
-      console.log(
-        "========================================"
+      console.info(
+        "[Upstox OAuth] Authentication successful:",
+        profile.user_id || "unknown"
       );
-      console.log(
-        "✅ UPSTOX AUTHENTICATION SUCCESSFUL"
-      );
-      console.log(
-        "========================================"
-      );
-      console.log(
-        "User ID:",
-        profileData?.data?.user_id ||
-          profileData?.user_id ||
-          "Unknown"
-      );
-      console.log(
-        "User Name:",
-        profileData?.data?.user_name ||
-          profileData?.user_name ||
-          "Unknown"
-      );
-      console.log(
-        "========================================"
-      );
-      console.log("");
 
-      return res.status(200).json({
-        success: true,
-
-        message:
-          "Upstox authentication successful.",
-
-        data: {
-          authenticated: true,
-
-          userId:
-            profileData?.data?.user_id ||
-            profileData?.user_id ||
-            null,
-
-          userName:
-            profileData?.data?.user_name ||
-            profileData?.user_name ||
-            null,
-
-          email:
-            profileData?.data?.email ||
-            profileData?.email ||
-            null,
-
-          broker:
-            profileData?.data?.broker ||
-            profileData?.broker ||
-            "UPSTOX",
-        },
+      // Never send the broker access token to Flutter.
+      return redirectToApp(res, {
+        status: "success",
+        broker: "upstox",
+        authenticated: "true",
+        userId: profile.user_id || "",
+        userName: profile.user_name || "",
       });
     } catch (error) {
-      console.error("");
       console.error(
-        "========================================"
+        "[Upstox OAuth] Callback failed:",
+        error.response?.data || error.message
       );
-      console.error(
-        "❌ UPSTOX CALLBACK ERROR"
-      );
-      console.error(
-        "========================================"
-      );
-      console.error(
-        "Status:",
-        error.response?.status
-      );
-      console.error(
-        "Response:",
-        error.response?.data
-      );
-      console.error(
-        "Message:",
-        error.message
-      );
-      console.error(
-        "========================================"
-      );
-      console.error("");
 
-      return res.status(
-        error.response?.status || 500
-      ).json({
-        success: false,
-
-        message:
-          "Upstox authentication failed.",
-
-        error:
-          error.response?.data ||
-          error.message,
+      return redirectToApp(res, {
+        status: "error",
+        broker: "upstox",
+        message: "Upstox authentication failed. Please try again.",
       });
     }
   }
 }
-
-// ==========================================================
-// Export Singleton
-// ==========================================================
 
 module.exports = new UpstoxController();

@@ -1,62 +1,52 @@
-// ==========================================================
-// AiTradeX - Upstox Service
-// ==========================================================
 
 const axios = require("axios");
 const crypto = require("crypto");
-
-const {
-  UPSTOX_CONFIG,
-} = require("./upstox.config");
-
-// ==========================================================
-// Upstox Service
-// ==========================================================
+const { UPSTOX_CONFIG } = require("./upstox.config");
 
 class UpstoxService {
-  // ========================================================
-  // Validate configuration
-  // ========================================================
-
   validateConfig() {
+    const missing = [];
+
     if (!UPSTOX_CONFIG.clientId) {
-      throw new Error(
-        "UPSTOX_CLIENT_ID is not configured"
-      );
+      missing.push("UPSTOX_CLIENT_ID");
     }
 
     if (!UPSTOX_CONFIG.clientSecret) {
-      throw new Error(
-        "UPSTOX_CLIENT_SECRET is not configured"
-      );
+      missing.push("UPSTOX_CLIENT_SECRET");
     }
 
     if (!UPSTOX_CONFIG.redirectUri) {
+      missing.push("UPSTOX_REDIRECT_URI");
+    }
+
+    if (!UPSTOX_CONFIG.authorizationUrl) {
+      missing.push("Upstox authorization URL");
+    }
+
+    if (!UPSTOX_CONFIG.tokenUrl) {
+      missing.push("Upstox token URL");
+    }
+
+    if (!UPSTOX_CONFIG.apiBaseUrl) {
+      missing.push("Upstox API base URL");
+    }
+
+    if (missing.length > 0) {
       throw new Error(
-        "UPSTOX_REDIRECT_URI is not configured"
+        `Missing Upstox configuration: ${missing.join(", ")}`
       );
     }
   }
-
-  // ========================================================
-  // Generate OAuth State
-  // ========================================================
 
   generateState() {
     return crypto.randomBytes(32).toString("hex");
   }
 
-  // ========================================================
-  // Generate Authorization URL
-  // ========================================================
-
   getAuthorizationUrl(state) {
     this.validateConfig();
 
     if (!state) {
-      throw new Error(
-        "OAuth state is required"
-      );
+      throw new Error("OAuth state is required");
     }
 
     const params = new URLSearchParams({
@@ -72,28 +62,22 @@ class UpstoxService {
     );
   }
 
-  // ========================================================
-  // Exchange Authorization Code
-  // ========================================================
-
   async exchangeCodeForToken(code) {
     this.validateConfig();
 
     if (!code) {
-      throw new Error(
-        "Authorization code is required"
-      );
+      throw new Error("Authorization code is required");
     }
 
-    try {
-      const body = new URLSearchParams({
-        code,
-        client_id: UPSTOX_CONFIG.clientId,
-        client_secret: UPSTOX_CONFIG.clientSecret,
-        redirect_uri: UPSTOX_CONFIG.redirectUri,
-        grant_type: "authorization_code",
-      });
+    const body = new URLSearchParams({
+      code,
+      client_id: UPSTOX_CONFIG.clientId,
+      client_secret: UPSTOX_CONFIG.clientSecret,
+      redirect_uri: UPSTOX_CONFIG.redirectUri,
+      grant_type: "authorization_code",
+    });
 
+    try {
       const response = await axios.post(
         UPSTOX_CONFIG.tokenUrl,
         body.toString(),
@@ -103,61 +87,25 @@ class UpstoxService {
             "Content-Type":
               "application/x-www-form-urlencoded",
           },
-
           timeout: 15000,
         }
       );
 
       return response.data;
     } catch (error) {
-      console.error(
-        "========================================"
-      );
-
-      console.error(
-        "❌ UPSTOX TOKEN EXCHANGE ERROR"
-      );
-
-      console.error(
-        "========================================"
-      );
-
-      console.error(
-        "Status:",
-        error.response?.status
-      );
-
-      console.error(
-        "Response:",
-        error.response?.data
-      );
-
-      console.error(
-        "Message:",
-        error.message
-      );
-
-      console.error(
-        "========================================"
-      );
+      console.error("[Upstox] Token exchange failed:", {
+        status: error.response?.status,
+        response: error.response?.data,
+        message: error.message,
+      });
 
       throw error;
     }
   }
 
-  // ========================================================
-  // Get User Profile
-  // ========================================================
-  //
-  // This will be useful for verifying that the access token
-  // actually works before we connect market data.
-  //
-
   async getUserProfile(accessToken) {
     if (!accessToken) {
-      throw new Error(
-        "Access token is required"
-      );
+      throw new Error("Access token is required");
     }
 
     try {
@@ -166,29 +114,23 @@ class UpstoxService {
         {
           headers: {
             Accept: "application/json",
-            Authorization:
-              `Bearer ${accessToken}`,
+            Authorization: `Bearer ${accessToken}`,
           },
-
           timeout: 15000,
         }
       );
 
       return response.data;
     } catch (error) {
-      console.error(
-        "Upstox profile request error:",
-        error.response?.data ||
-          error.message
-      );
+      console.error("[Upstox] Profile request failed:", {
+        status: error.response?.status,
+        response: error.response?.data,
+        message: error.message,
+      });
 
       throw error;
     }
   }
 }
-
-// ==========================================================
-// Export Singleton
-// ==========================================================
 
 module.exports = new UpstoxService();

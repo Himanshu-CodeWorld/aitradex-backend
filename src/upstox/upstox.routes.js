@@ -1,8 +1,4 @@
 
- // ==========================================================
-// AiTradeX - Upstox Routes
-// ==========================================================
-
 const express = require("express");
 const upstoxController = require("./upstox.controller");
 const upstoxMarketController = require("./upstox.market.controller");
@@ -10,44 +6,20 @@ const upstoxReportController = require("./upstox.report.controller");
 
 const router = express.Router();
 
-// ==========================================================
-// OAuth Login
-// ==========================================================
+router.get("/login", (req, res) =>
+  upstoxController.login(req, res)
+);
 
-// GET /api/upstox/login
-router.get("/login", (req, res) => {
-  return upstoxController.login(req, res);
-});
+router.get("/callback", (req, res) =>
+  upstoxController.callback(req, res)
+);
 
-// GET /api/upstox/callback
-router.get("/callback", (req, res) => {
-  return upstoxController.callback(req, res);
-});
+router.get("/market-data", (req, res) =>
+  upstoxMarketController.getMarketData(req, res)
+);
 
-// ==========================================================
-// Market Data
-// ==========================================================
-
-// GET /api/upstox/market-data
-router.get("/market-data", (req, res) => {
-  return upstoxMarketController.getMarketData(req, res);
-});
-
-// ==========================================================
-// Stock Report
-// ==========================================================
-
-// GET /api/upstox/report?symbol=RELIANCE
-// Optional query parameters:
-// instrument_key=NSE_EQ|INE002A01018
-// isin=INE002A01018
-
-router.get("/report", (req, res) => {
-  return upstoxReportController.getReport(req, res);
-});
-
-// ==========================================================
-// Export Router
-// ==========================================================
+router.get("/report", (req, res) =>
+  upstoxReportController.getReport(req, res)
+);
 
 module.exports = router;
