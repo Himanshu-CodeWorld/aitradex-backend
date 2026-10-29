@@ -28,6 +28,27 @@ function getFirebaseUid(req) {
 }
 
 /**
+ * Retry a pending referral reward for the authenticated user.
+ * This recovers signups whose user record was saved but whose reward
+ * transaction failed. The service is idempotent via referralRewardClaimed.
+ */
+async function retryPendingReferralReward(firebaseUid) {
+  try {
+    const result = await coinService.rewardReferralSignup({ firebaseUid });
+    if (result?.rewarded) {
+      console.log("[Referral] Reward recovered successfully", {
+        firebaseUid,
+        coins: result.coins,
+      });
+    }
+  } catch (error) {
+    // Coin balance/history should still load if this user has no referral.
+    console.error("[Referral] Pending reward retry failed:", error.message);
+  }
+}
+
+
+/**
  * ==========================================================
  * GET COIN BALANCE
  * ==========================================================
@@ -46,6 +67,9 @@ const getBalance = async (req, res) => {
         code: "FIREBASE_UID_MISSING",
       });
     }
+
+    // Retry a failed signup referral before returning the authoritative balance.
+    await retryPendingReferralReward(firebaseUid);
 
     const data = await coinService.getBalance(firebaseUid);
 
@@ -98,6 +122,9 @@ const getHistory = async (req, res) => {
 
     const page = req.query?.page;
     const limit = req.query?.limit;
+
+    // Retry a failed signup referral before reading the transaction ledger.
+    await retryPendingReferralReward(firebaseUid);
 
     const data = await coinService.getHistory({
       firebaseUid,

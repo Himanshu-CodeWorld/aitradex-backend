@@ -340,26 +340,31 @@ const rewardReferralSignup = async ({ firebaseUid }) => {
       await newWallet.save({ session });
       await inviterWallet.save({ session });
 
-      await CoinTransaction.create([
-        {
-          firebaseUid: normalizedUid,
-          type: "credit",
-          amount: REFERRAL_REWARD_COINS,
-          balanceAfter: newWallet.balance,
-          amountInr: REFERRAL_REWARD_COINS * COIN_RUPEE_VALUE,
-          description: "Referral signup bonus",
-          referenceId: String(inviter._id),
-        },
-        {
-          firebaseUid: inviter.firebaseUid,
-          type: "credit",
-          amount: REFERRAL_REWARD_COINS,
-          balanceAfter: inviterWallet.balance,
-          amountInr: REFERRAL_REWARD_COINS * COIN_RUPEE_VALUE,
-          description: "Friend joined using your referral code",
-          referenceId: String(newUser._id),
-        },
-      ], { session });
+      // Mongoose requires ordered:true when create() receives multiple
+      // documents together with a transaction session.
+      await CoinTransaction.create(
+        [
+          {
+            firebaseUid: normalizedUid,
+            type: "credit",
+            amount: REFERRAL_REWARD_COINS,
+            balanceAfter: newWallet.balance,
+            amountInr: REFERRAL_REWARD_COINS * COIN_RUPEE_VALUE,
+            description: "Referral signup bonus",
+            referenceId: String(inviter._id),
+          },
+          {
+            firebaseUid: inviter.firebaseUid,
+            type: "credit",
+            amount: REFERRAL_REWARD_COINS,
+            balanceAfter: inviterWallet.balance,
+            amountInr: REFERRAL_REWARD_COINS * COIN_RUPEE_VALUE,
+            description: "Friend joined using your referral code",
+            referenceId: String(newUser._id),
+          },
+        ],
+        { session, ordered: true }
+      );
 
       inviter.referralCount = (Number(inviter.referralCount) || 0) + 1;
       await inviter.save({ session });
