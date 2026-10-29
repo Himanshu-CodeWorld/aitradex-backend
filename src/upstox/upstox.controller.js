@@ -75,9 +75,11 @@ class UpstoxController {
       }
 
       if (typeof code !== "string" || !code.trim()) {
-        return res.status(400).send(
-          "Upstox authorization code is missing. Return to AiTradeX and try again."
-        );
+        return redirectToApp(res, {
+          status: "error",
+          broker: "upstox",
+          message: "Upstox authorization code is missing. Please try again.",
+        });
       }
 
       const savedState = req.cookies?.[STATE_COOKIE];
@@ -89,9 +91,11 @@ class UpstoxController {
       ) {
         res.clearCookie(STATE_COOKIE, COOKIE_OPTIONS);
 
-        return res.status(400).send(
-          "Upstox OAuth state validation failed or expired. Return to AiTradeX and try again."
-        );
+        return redirectToApp(res, {
+          status: "error",
+          broker: "upstox",
+          message: "Upstox authorization state validation failed or expired. Please try again.",
+        });
       }
 
       res.clearCookie(STATE_COOKIE, COOKIE_OPTIONS);
