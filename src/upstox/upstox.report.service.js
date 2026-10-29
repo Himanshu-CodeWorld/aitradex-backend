@@ -7,7 +7,10 @@
 // ==========================================================
 
 const axios = require("axios");
+<<<<<<< HEAD
 const { loadInstrumentMaster } = require("./upstox.instruments.service");
+=======
+>>>>>>> 0026497 (FIX Google AUth)
 
 const { UPSTOX_CONFIG } = require("./upstox.config");
 const {
@@ -113,6 +116,7 @@ class UpstoxReportService {
     const cleanIsin = stringValue(isin).toUpperCase();
 
     if (cleanKey) {
+<<<<<<< HEAD
       // Resolve metadata from the same instrument master used by market data.
       // Flutter may send only instrument_key, while Upstox quote maps use symbols.
       const instruments = await loadInstrumentMaster();
@@ -122,6 +126,13 @@ class UpstoxReportService {
         isin: cleanIsin || stringValue(match?.isin),
         symbol: cleanSymbol || stringValue(match?.symbol),
         name: stringValue(match?.name || match?.symbol || cleanSymbol),
+=======
+      return {
+        instrumentKey: cleanKey,
+        isin: cleanIsin,
+        symbol: cleanSymbol,
+        name: cleanSymbol,
+>>>>>>> 0026497 (FIX Google AUth)
       };
     }
 
@@ -179,6 +190,7 @@ class UpstoxReportService {
 
   parseLtp(response, instrumentKey, symbol) {
     const data = response?.data || {};
+<<<<<<< HEAD
     const direct =
       data[instrumentKey] ||
       data[encodeURIComponent(instrumentKey)];
@@ -192,6 +204,12 @@ class UpstoxReportService {
         (wantedSymbol && quoteSymbol === wantedSymbol);
     });
     const raw = direct || matchingEntry?.[1] || {};
+=======
+    const raw =
+      data[instrumentKey] ||
+      data[encodeURIComponent(instrumentKey)] ||
+      {};
+>>>>>>> 0026497 (FIX Google AUth)
 
     const lastPrice = asNumber(
       raw.last_price ?? raw.lastPrice ?? raw.ltp
