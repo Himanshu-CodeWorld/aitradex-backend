@@ -1877,10 +1877,89 @@ exports.resendPhoneOtp = async (req, res) => {
 };
 
 // ==========================================================
+// CLOSE ACCOUNT (Firebase Authentication + MongoDB profile)
+// DELETE /api/auth/delete-account
+// Requires a valid Firebase ID token in Authorization: Bearer <token>.
+// ==========================================================
+
+exports.deleteAccount = async (req, res) => {
+  try {
+    const idToken = getBearerToken(req);
+    if (!idToken) {
+      return res.status(401).json({
+        success: false,
+        message: "Firebase ID token is required.",
+      });
+    }
+
+    let decodedToken;
+    try {
+      decodedToken = await firebaseAuth.verifyIdToken(idToken, true);
+    } catch (tokenError) {
+      console.error("DELETE ACCOUNT TOKEN ERROR:", tokenError.message);
+      return res.status(401).json({
+        success: false,
+        message: "Your session is invalid or expired. Please sign in again.",
+      });
+    }
+
+    const firebaseUid = String(decodedToken.uid || "").trim();
+    if (!firebaseUid) {
+      return res.status(401).json({
+        success: false,
+        message: "Firebase UID could not be verified.",
+      });
+    }
+
+    console.log("[DeleteAccount] Requested for verified UID:", firebaseUid);
+
+    // Delete the Firebase identity first so a successful response never
+    // means only the local app session was cleared.
+    try {
+      await firebaseAuth.deleteUser(firebaseUid);
+    } catch (firebaseError) {
+      // A previously deleted Firebase user is treated as already deleted;
+      // any other error must stop the operation and be reported.
+      if (firebaseError.code !== "auth/user-not-found") {
+        console.error("[DeleteAccount] Firebase deletion failed:", firebaseError.message);
+        return res.status(500).json({
+          success: false,
+          message: "Firebase account deletion failed. Your account was not confirmed as closed.",
+        });
+      }
+    }
+
+    try {
+      await User.deleteOne({ firebaseUid });
+    } catch (databaseError) {
+      console.error("[DeleteAccount] MongoDB profile deletion failed:", databaseError);
+      return res.status(500).json({
+        success: false,
+        message: "Firebase account was deleted, but profile cleanup failed. Please contact support.",
+      });
+    }
+
+    console.log("[DeleteAccount] Firebase account and MongoDB profile deleted:", firebaseUid);
+    return res.status(200).json({
+      success: true,
+      message: "Account deleted successfully.",
+    });
+  } catch (error) {
+    console.error("[DeleteAccount] Unexpected error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to delete account right now. Please try again later.",
+    });
+  }
+};
+
+// ==========================================================
 // EXPORT
 // ==========================================================
 
 module.exports = {
+  deleteAccount: exports.deleteAccount,
+
   googleLogin:
     exports.googleLogin,
 
