@@ -6,6 +6,7 @@ const exitService = require("./exit/exit.service");
 const riskService = require("./risk/risk.service");
 const backtestService = require("./backtesting/backtest.service");
 const backtestHistoryService = require("./backtesting/backtest-history.service");
+const strategyPerformanceService = require("./backtesting/strategy-performance.service");
 
 function sendError(res, error, fallback) {
   const statusCode = Number(error.statusCode) || 500;
@@ -29,7 +30,7 @@ exports.getDashboard = async (req, res) => res.status(200).json({
       entry: "AVAILABLE_DAILY_TECHNICAL_ANALYSIS",
       exit: "AVAILABLE_DAILY_POSITION_ANALYSIS",
       risk: "AVAILABLE_PORTFOLIO_AND_POSITION_SIZING",
-      backtesting: "AVAILABLE_DAILY_HISTORICAL_SIMULATION_WITH_CUSTOM_STRATEGIES",
+      backtesting: "AVAILABLE_DAILY_HISTORICAL_SIMULATION",
       brokerExecution: "DISABLED",
     },
   },
@@ -150,5 +151,15 @@ exports.compareBacktests = async (req, res) => {
     return res.status(200).json({ success: true, data: { items, count: items.length } });
   } catch (error) {
     return sendError(res, error, "Unable to compare the selected backtests.");
+  }
+};
+
+
+exports.getStrategyPerformance = async (req, res) => {
+  try {
+    const data = await strategyPerformanceService.getDashboard(authenticatedUid(req), req.query || {});
+    return res.status(200).json({ success: true, message: "Saved strategy performance loaded.", data });
+  } catch (error) {
+    return sendError(res, error, "Unable to load strategy performance.");
   }
 };

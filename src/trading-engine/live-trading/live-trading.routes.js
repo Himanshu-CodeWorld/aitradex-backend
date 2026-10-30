@@ -1,0 +1,10 @@
+'use strict';
+const express = require('express');
+const c = require('./live-trading.controller');
+const router = express.Router();
+router.post('/preview', c.preview);
+router.post('/confirm', c.confirm);
+router.get('/orders', c.orders);
+router.get('/orders/:orderId', c.details);
+router.delete('/orders/:orderId', c.cancel);
+module.exports = router;

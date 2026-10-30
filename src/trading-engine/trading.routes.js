@@ -13,6 +13,7 @@ router.post("/backtest/run", tradingController.runBacktest);
 router.post("/backtest/history", tradingController.saveBacktest);
 router.get("/backtest/history", tradingController.listBacktests);
 router.post("/backtest/history/compare", tradingController.compareBacktests);
+router.get("/backtest/performance", tradingController.getStrategyPerformance);
 router.get("/backtest/history/:id", tradingController.getBacktest);
 router.delete("/backtest/history/:id", tradingController.deleteBacktest);
 module.exports = router;
