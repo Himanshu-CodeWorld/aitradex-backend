@@ -5,6 +5,7 @@ const entryService = require("./entry/entry.service");
 const exitService = require("./exit/exit.service");
 const riskService = require("./risk/risk.service");
 const backtestService = require("./backtesting/backtest.service");
+const backtestHistoryService = require("./backtesting/backtest-history.service");
 
 function sendError(res, error, fallback) {
   const statusCode = Number(error.statusCode) || 500;
@@ -28,7 +29,7 @@ exports.getDashboard = async (req, res) => res.status(200).json({
       entry: "AVAILABLE_DAILY_TECHNICAL_ANALYSIS",
       exit: "AVAILABLE_DAILY_POSITION_ANALYSIS",
       risk: "AVAILABLE_PORTFOLIO_AND_POSITION_SIZING",
-      backtesting: "AVAILABLE_DAILY_HISTORICAL_SIMULATION",
+      backtesting: "AVAILABLE_DAILY_HISTORICAL_SIMULATION_WITH_CUSTOM_STRATEGIES",
       brokerExecution: "DISABLED",
     },
   },
@@ -99,5 +100,55 @@ exports.runBacktest = async (req, res) => {
     });
   } catch (error) {
     return sendError(res, error, "Unable to run the backtest. Check Upstox connection and selected date range.");
+  }
+};
+
+
+function authenticatedUid(req) {
+  return req.userId || req.firebaseUser?.uid || req.user?.uid || req.auth?.uid;
+}
+
+exports.saveBacktest = async (req, res) => {
+  try {
+    const saved = await backtestHistoryService.saveRun(authenticatedUid(req), req.body || {});
+    return res.status(201).json({ success: true, message: "Backtest saved to your history.", data: saved });
+  } catch (error) {
+    return sendError(res, error, "Unable to save this backtest.");
+  }
+};
+
+exports.listBacktests = async (req, res) => {
+  try {
+    const items = await backtestHistoryService.listRuns(authenticatedUid(req), req.query || {});
+    return res.status(200).json({ success: true, data: { items, count: items.length } });
+  } catch (error) {
+    return sendError(res, error, "Unable to load saved backtests.");
+  }
+};
+
+exports.getBacktest = async (req, res) => {
+  try {
+    const item = await backtestHistoryService.getRun(authenticatedUid(req), req.params.id);
+    return res.status(200).json({ success: true, data: item });
+  } catch (error) {
+    return sendError(res, error, "Unable to load this saved backtest.");
+  }
+};
+
+exports.deleteBacktest = async (req, res) => {
+  try {
+    const result = await backtestHistoryService.deleteRun(authenticatedUid(req), req.params.id);
+    return res.status(200).json({ success: true, message: "Saved backtest deleted.", data: result });
+  } catch (error) {
+    return sendError(res, error, "Unable to delete this saved backtest.");
+  }
+};
+
+exports.compareBacktests = async (req, res) => {
+  try {
+    const items = await backtestHistoryService.compareRuns(authenticatedUid(req), req.body?.ids);
+    return res.status(200).json({ success: true, data: { items, count: items.length } });
+  } catch (error) {
+    return sendError(res, error, "Unable to compare the selected backtests.");
   }
 };

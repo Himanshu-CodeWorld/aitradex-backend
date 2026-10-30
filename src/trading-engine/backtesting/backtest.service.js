@@ -1,6 +1,7 @@
 "use strict";
 const entryService = require("../entry/entry.service");
 const { ema, calculateRsi, calculateMacd, calculateAtr } = entryService._indicators;
+const strategyBuilder = require("./strategy-builder.service");
 
 function fail(message, code, status = 400) {
   const e = new Error(message); e.code = code; e.statusCode = status; throw e;
@@ -8,7 +9,7 @@ function fail(message, code, status = 400) {
 const n = (v) => (v === null || v === undefined || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 const r = (v, p = 2) => Number.isFinite(v) ? Math.round((v + Number.EPSILON) * 10 ** p) / 10 ** p : null;
 const day = (v) => {
-  if (typeof v === "string" && /^\\d{4}-\\d{2}-\\d{2}/.test(v)) return v.slice(0, 10);
+  if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10);
   return new Date(v).toISOString().slice(0, 10);
 };
 
@@ -59,6 +60,9 @@ async function runBacktest(input = {}) {
   const atrMult = n(input.atrMultiplier) ?? 1.5;
   const targetR = n(input.targetR) ?? 2;
   const bps = n(input.costBpsPerSide) ?? 5;
+  if (input.strategy !== undefined && (!input.strategy || typeof input.strategy !== "object" || Array.isArray(input.strategy))) {
+    fail("strategy must be an object containing entryConditions and exitConditions.", "INVALID_STRATEGY");
+  }
   if (!(capital >= 1000 && capital <= 1e9)) fail("initialCapital must be between 1,000 and 1,000,000,000.","INVALID_INITIAL_CAPITAL");
   if (!Number.isInteger(lookback) || lookback<60 || lookback>365) fail("lookbackDays must be 60–365.","INVALID_LOOKBACK_DAYS");
   if (!(allocation>=1 && allocation<=100)) fail("allocationPercent must be 1–100.","INVALID_ALLOCATION_PERCENT");
@@ -88,7 +92,10 @@ async function runBacktest(input = {}) {
   const first = candles.findIndex(c=>day(c.timestamp)>=start);
   const last = candles.reduce((a,c,i)=>day(c.timestamp)<=end?i:a,-1);
   if (candles.length<45 || first<1 || last<=first) fail("Not enough candles for this range and indicator warm-up. Choose a later start date.","INSUFFICIENT_BACKTEST_CANDLES",422);
-  const signals = candles.map((_,i)=>signalAt(candles,i));
+  const customStrategy = input.strategy && typeof input.strategy === "object"
+    ? strategyBuilder.buildSignals(candles, input.strategy)
+    : null;
+  const signals = customStrategy ? customStrategy.signals : candles.map((_,i)=>signalAt(candles,i));
   const trades=[], curve=[];
   let equity=capital, position=null, peak=capital;
 
@@ -128,10 +135,13 @@ async function runBacktest(input = {}) {
   const buyHold=(tested[tested.length-1].close/tested[0].close-1)*100;
   return {
     instrument:{symbol:instrument.symbol,name:instrument.name,exchange:instrument.exchange,instrumentKey:instrument.instrumentKey},
-    strategy:{name:"EMA 9/21 + RSI 14 + MACD + ATR stop/target",timeframe:"1D",
-      entryRules:["EMA 9 above EMA 21","MACD above signal","RSI 14 between 50 and 70","Signal from completed candle; entry at next session open"],
-      exitRules:["ATR stop-loss","ATR target using targetR","EMA 9 below EMA 21 OR MACD below signal with RSI below 45; exit next session open"],
-      parameters:{initialCapital:r(capital),allocationPercent:allocation,atrMultiplier:atrMult,targetR,costBpsPerSide:bps}},
+    strategy:{name:customStrategy ? customStrategy.strategy.name : "EMA 9/21 + RSI 14 + MACD + ATR stop/target",timeframe:"1D",
+      entryLogic:customStrategy ? "ALL conditions must match" : "ALL conditions must match",
+      exitLogic:customStrategy ? "ANY condition triggers exit" : "ANY technical exit condition triggers",
+      entryRules:customStrategy ? customStrategy.strategy.entryConditions.map(strategyBuilder.describeCondition).concat(["Signal from completed candle; entry at next session open"]) : ["EMA 9 above EMA 21","MACD above signal","RSI 14 between 50 and 70","Signal from completed candle; entry at next session open"],
+      exitRules:customStrategy ? customStrategy.strategy.exitConditions.map(strategyBuilder.describeCondition).concat(["ATR stop-loss and ATR target remain active; technical exit fills at next session open"]) : ["ATR stop-loss","ATR target using targetR","EMA 9 below EMA 21 OR MACD below signal with RSI below 45; exit next session open"],
+      parameters:{initialCapital:r(capital),allocationPercent:allocation,atrMultiplier:atrMult,targetR,costBpsPerSide:bps},
+      custom:!!customStrategy},
     period:{startDate:day(tested[0].timestamp),endDate:day(tested[tested.length-1].timestamp),requestedStartDate:start,requestedEndDate:end,candlesTested:tested.length,timeframe:"1D"},
     metrics:m,comparison:{buyAndHoldReturnPercent:r(buyHold),strategyReturnPercent:m.returnPercent,outperformancePercent:r(m.returnPercent-buyHold)},
     trades:trades.slice(-200),tradesReturned:Math.min(200,trades.length),tradesTruncated:trades.length>200,
