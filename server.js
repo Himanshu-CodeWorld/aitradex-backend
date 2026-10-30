@@ -1,5 +1,6 @@
+
 // ==========================================================
-// AiTradeX Backend - Production-ready server.js
+// AiTradeX Backend - server.js
 // ==========================================================
 "use strict";
 
@@ -14,10 +15,7 @@ const mongoose = require("mongoose");
 
 const connectDB = require("./src/config/db");
 
-// ==========================================================
-// ROUTES
-// ==========================================================
-
+// Routes
 const authRoutes = require("./src/routes/auth.routes");
 const userRoutes = require("./src/routes/user.routes");
 const aiRoutes = require("./src/routes/ai.routes");
@@ -27,11 +25,8 @@ const coinPaymentRoutes = require("./src/routes/coinPayment.routes");
 const referralRoutes = require("./src/routes/referral.routes");
 const profileUploadRoutes = require("./src/routes/profileUpload.routes");
 
-// ==========================================================
-// APP CONFIGURATION
-// ==========================================================
-
 const app = express();
+
 const PORT = Number(process.env.PORT) || 10000;
 const NODE_ENV = process.env.NODE_ENV || "development";
 const IS_PRODUCTION = NODE_ENV === "production";
@@ -48,19 +43,19 @@ if (IS_PRODUCTION) {
 
 const configuredOrigins = (process.env.CORS_ORIGINS || "")
   .split(",")
-  .map((origin) => origin.trim().replace(/\/+$/, ""))
+  .map((value) => value.trim().replace(/\/+$/, ""))
   .filter(Boolean);
 
 app.use(
   cors({
     origin(origin, callback) {
-      // Flutter, native clients, Postman and server-to-server requests.
       if (!origin) return callback(null, true);
 
-      // If no allowlist is configured, allow browser origins.
-      if (configuredOrigins.length === 0) return callback(null, true);
+      if (configuredOrigins.length === 0) {
+        return callback(null, true);
+      }
 
-      const normalizedOrigin = origin.replace(/\/+$/, "");
+      const normalizedOrigin = origin.trim().replace(/\/+$/, "");
 
       if (configuredOrigins.includes(normalizedOrigin)) {
         return callback(null, true);
@@ -68,6 +63,7 @@ app.use(
 
       const error = new Error("CORS origin not allowed");
       error.status = 403;
+
       return callback(error);
     },
 
@@ -107,10 +103,9 @@ app.use(
   })
 );
 
-// Required for Upstox OAuth state/cookie handling.
 app.use(cookieParser());
 
-// Never log Authorization headers, cookies, API keys or request bodies.
+// Development-only request logging.
 if (!IS_PRODUCTION) {
   app.use((req, res, next) => {
     console.log(`[REQUEST] ${req.method} ${req.originalUrl}`);
@@ -122,8 +117,7 @@ if (!IS_PRODUCTION) {
 // STARTUP BANNER
 // ==========================================================
 
-console.log("");
-console.log("========================================");
+console.log("\n========================================");
 console.log(" AiTradeX Backend Initializing");
 console.log("========================================");
 
@@ -157,14 +151,12 @@ console.log(
   }`
 );
 
-console.log("========================================");
-console.log("");
+console.log("========================================\n");
 
 // ==========================================================
 // HEALTH ENDPOINTS
 // ==========================================================
 
-// Liveness: confirms that the Node process is responding.
 app.get("/", (req, res) => {
   return res.status(200).json({
     success: true,
@@ -183,7 +175,6 @@ app.get("/healthz", (req, res) => {
   });
 });
 
-// Readiness: report the real MongoDB connection state.
 app.get("/api/health", (req, res) => {
   const databaseConnected = mongoose.connection.readyState === 1;
 
@@ -232,6 +223,7 @@ app.use("/api/users", userRoutes);
 console.log("User routes       : /api/users");
 
 // AI CHATBOT
+// Uses AiChat as the only chatbot history model.
 app.use("/api/ai", aiRoutes);
 console.log("AI routes         : /api/ai");
 console.log("  POST   /api/ai/chat");
@@ -259,11 +251,10 @@ console.log("Coin payments     : /api/coins/payment");
 app.use("/api/referrals", referralRoutes);
 console.log("Referral routes   : /api/referrals");
 
-console.log("========================================");
-console.log("");
+console.log("========================================\n");
 
 // ==========================================================
-// 404 HANDLER - MUST FOLLOW ALL ROUTES
+// 404 HANDLER
 // ==========================================================
 
 app.use((req, res) => {
@@ -276,7 +267,7 @@ app.use((req, res) => {
 });
 
 // ==========================================================
-// GLOBAL ERROR HANDLER - MUST BE LAST
+// GLOBAL ERROR HANDLER
 // ==========================================================
 
 app.use((error, req, res, next) => {
@@ -325,29 +316,21 @@ app.use((error, req, res, next) => {
 function validateEnvironment() {
   const warnings = [];
 
-  // MONGODB
   if (!process.env.MONGODB_URI) {
     warnings.push("MONGODB_URI is not configured.");
   }
 
-  // FIREBASE
   if (
     !process.env.FIREBASE_PROJECT_ID &&
     !process.env.FIREBASE_SERVICE_ACCOUNT
   ) {
-    warnings.push(
-      "Firebase environment configuration was not detected."
-    );
+    warnings.push("Firebase environment configuration was not detected.");
   }
 
-  // GROQ
   if (!process.env.GROQ_API_KEY) {
-    warnings.push(
-      "GROQ_API_KEY is not configured; AI chat will not work."
-    );
+    warnings.push("GROQ_API_KEY is not configured; AI chat will not work.");
   }
 
-  // UPSTOX
   if (!process.env.UPSTOX_CLIENT_ID) {
     warnings.push("UPSTOX_CLIENT_ID is not configured.");
   }
@@ -360,14 +343,12 @@ function validateEnvironment() {
     warnings.push("UPSTOX_REDIRECT_URI is not configured.");
   }
 
-  // REFERRAL
   if (!process.env.REFERRAL_REWARD_COINS) {
     console.log("Referral reward default: 250 coins.");
   }
 
   if (warnings.length > 0) {
-    console.warn("");
-    console.warn("Environment warnings:");
+    console.warn("\nEnvironment warnings:");
 
     warnings.forEach((warning) => {
       console.warn(`- ${warning}`);
@@ -390,14 +371,12 @@ async function startServer() {
 
     validateEnvironment();
 
-    // MongoDB is required for AiTradeX API functionality.
     if (!process.env.MONGODB_URI) {
       throw new Error(
         "MONGODB_URI is required. Server startup cancelled."
       );
     }
 
-    // CONNECT DATABASE BEFORE ACCEPTING REQUESTS.
     console.log("Connecting to MongoDB Atlas...");
 
     await connectDB();
@@ -410,10 +389,8 @@ async function startServer() {
 
     console.log("MongoDB Atlas connected successfully.");
 
-    // START EXPRESS SERVER.
     server = app.listen(PORT, "0.0.0.0", () => {
-      console.log("");
-      console.log("========================================");
+      console.log("\n========================================");
       console.log("AiTradeX Backend Started");
       console.log("========================================");
 
@@ -422,9 +399,7 @@ async function startServer() {
       console.log(`Local       : http://localhost:${PORT}`);
 
       if (process.env.RENDER_EXTERNAL_URL) {
-        console.log(
-          `Render URL  : ${process.env.RENDER_EXTERNAL_URL}`
-        );
+        console.log(`Render URL  : ${process.env.RENDER_EXTERNAL_URL}`);
       }
 
       console.log("Health      : /api/health");
@@ -432,8 +407,7 @@ async function startServer() {
       console.log("Chat History: /api/ai/chats");
       console.log("Upstox      : /api/upstox");
 
-      console.log("========================================");
-      console.log("");
+      console.log("========================================\n");
     });
 
     server.on("error", (error) => {
@@ -447,8 +421,7 @@ async function startServer() {
       void gracefulShutdown("HTTP_SERVER_ERROR");
     });
   } catch (error) {
-    console.error("");
-    console.error("========================================");
+    console.error("\n========================================");
     console.error("AiTradeX server startup failed");
     console.error("========================================");
 
@@ -487,7 +460,6 @@ async function gracefulShutdown(signal) {
   forceExit.unref();
 
   try {
-    // CLOSE HTTP SERVER.
     if (server) {
       await new Promise((resolve) => {
         server.close((error) => {
@@ -500,9 +472,10 @@ async function gracefulShutdown(signal) {
           resolve();
         });
       });
+
+      server = null;
     }
 
-    // CLOSE MONGODB.
     if (mongoose.connection.readyState !== 0) {
       await mongoose.connection.close();
       console.log("MongoDB connection closed.");

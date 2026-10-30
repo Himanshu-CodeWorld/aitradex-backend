@@ -1,7 +1,30 @@
-
+// src/models/AiChat.js
 "use strict";
 
 const mongoose = require("mongoose");
+
+const aiMessageSchema = new mongoose.Schema(
+  {
+    role: {
+      type: String,
+      enum: ["user", "assistant"],
+      required: true,
+    },
+    content: {
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: 12000,
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  {
+    _id: false,
+  }
+);
 
 const aiChatSchema = new mongoose.Schema(
   {
@@ -12,23 +35,40 @@ const aiChatSchema = new mongoose.Schema(
       index: true,
     },
 
-    message: {
+    title: {
       type: String,
-      required: true,
+      default: "New chat",
       trim: true,
-      maxlength: 4000,
+      maxlength: 100,
     },
 
-    reply: {
-      type: String,
-      required: true,
-      trim: true,
+    // Complete conversation stored in one document.
+    messages: {
+      type: [aiMessageSchema],
+      default: [],
     },
 
     model: {
       type: String,
       default: "openai/gpt-oss-120b",
       trim: true,
+    },
+
+    lastMessageAt: {
+      type: Date,
+      default: Date.now,
+      index: true,
+    },
+
+    // Legacy fields: retained so existing saved chats remain readable.
+    message: {
+      type: String,
+      default: undefined,
+    },
+
+    reply: {
+      type: String,
+      default: undefined,
     },
   },
   {
@@ -37,13 +77,11 @@ const aiChatSchema = new mongoose.Schema(
   }
 );
 
-// Efficient user-specific chat history queries.
 aiChatSchema.index({
   userId: 1,
-  createdAt: -1,
+  lastMessageAt: -1,
 });
 
-// Prevent model recompilation errors during hot reload.
 const AiChat =
   mongoose.models.AiChat ||
   mongoose.model("AiChat", aiChatSchema);
