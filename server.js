@@ -1,6 +1,7 @@
 // ==========================================================
-// AiTradeX Backend - server.js
+// AiTradeX Backend - Production-ready server.js
 // ==========================================================
+"use strict";
 
 require("dotenv").config();
 
@@ -9,10 +10,7 @@ const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
 const cookieParser = require("cookie-parser");
-
-// ==========================================================
-// DATABASE
-// ==========================================================
+const mongoose = require("mongoose");
 
 const connectDB = require("./src/config/db");
 
@@ -30,87 +28,50 @@ const referralRoutes = require("./src/routes/referral.routes");
 const profileUploadRoutes = require("./src/routes/profileUpload.routes");
 
 // ==========================================================
-// APP INITIALIZATION
+// APP CONFIGURATION
 // ==========================================================
 
 const app = express();
-
 const PORT = Number(process.env.PORT) || 10000;
-
-const NODE_ENV =
-  process.env.NODE_ENV || "development";
-
-const IS_PRODUCTION =
-  NODE_ENV === "production";
-
-// ==========================================================
-// BASIC APP CONFIGURATION
-// ==========================================================
+const NODE_ENV = process.env.NODE_ENV || "development";
+const IS_PRODUCTION = NODE_ENV === "production";
 
 app.disable("x-powered-by");
 
 if (IS_PRODUCTION) {
-  // Render runs behind a reverse proxy.
   app.set("trust proxy", 1);
 }
 
 // ==========================================================
-// SECURITY / CORS
+// CORS
 // ==========================================================
-//
-// Flutter mobile requests generally do not send an Origin header.
-// Browser requests do.
-//
-// We intentionally do NOT use:
-//   credentials: true
-//
-// together with:
-//   origin: "*"
-//
-// because browsers reject wildcard origins with credentials.
-//
-// Upstox OAuth uses an HTTP-only cookie on the backend and
-// does not require cross-origin credentialed API requests.
-//
 
-const configuredOrigins = (
-  process.env.CORS_ORIGINS || ""
-)
+const configuredOrigins = (process.env.CORS_ORIGINS || "")
   .split(",")
-  .map((origin) => origin.trim())
+  .map((origin) => origin.trim().replace(/\/+$/, ""))
   .filter(Boolean);
 
 app.use(
   cors({
-    origin: (origin, callback) => {
-      // Mobile apps / Postman / server-to-server requests.
-      if (!origin) {
+    origin(origin, callback) {
+      // Flutter, native clients, Postman and server-to-server requests.
+      if (!origin) return callback(null, true);
+
+      // If no allowlist is configured, allow browser origins.
+      if (configuredOrigins.length === 0) return callback(null, true);
+
+      const normalizedOrigin = origin.replace(/\/+$/, "");
+
+      if (configuredOrigins.includes(normalizedOrigin)) {
         return callback(null, true);
       }
 
-      // If no specific origins are configured,
-      // allow browser origins.
-      if (configuredOrigins.length === 0) {
-        return callback(null, true);
-      }
-
-      if (configuredOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-
-      return callback(
-        new Error("CORS origin not allowed")
-      );
+      const error = new Error("CORS origin not allowed");
+      error.status = 403;
+      return callback(error);
     },
 
-    methods: [
-      "GET",
-      "POST",
-      "PUT",
-      "PATCH",
-      "DELETE",
-      "OPTIONS",
-    ],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 
     allowedHeaders: [
       "Content-Type",
@@ -120,17 +81,13 @@ app.use(
       "X-Requested-With",
     ],
 
-    exposedHeaders: [
-      "Content-Length",
-      "Content-Type",
-    ],
-
+    exposedHeaders: ["Content-Length", "Content-Type"],
     optionsSuccessStatus: 204,
   })
 );
 
 // ==========================================================
-// HELMET
+// SECURITY, LOGGING AND PARSERS
 // ==========================================================
 
 app.use(
@@ -139,27 +96,9 @@ app.use(
   })
 );
 
-// ==========================================================
-// LOGGING
-// ==========================================================
+app.use(morgan(IS_PRODUCTION ? "combined" : "dev"));
 
-app.use(
-  morgan(
-    IS_PRODUCTION
-      ? "combined"
-      : "dev"
-  )
-);
-
-// ==========================================================
-// BODY PARSERS
-// ==========================================================
-
-app.use(
-  express.json({
-    limit: "2mb",
-  })
-);
+app.use(express.json({ limit: "2mb" }));
 
 app.use(
   express.urlencoded({
@@ -168,103 +107,64 @@ app.use(
   })
 );
 
-// ==========================================================
-// COOKIE PARSER
-// ==========================================================
-//
-// Required by Upstox OAuth state validation.
-//
-
+// Required for Upstox OAuth state/cookie handling.
 app.use(cookieParser());
 
-// ==========================================================
-// REQUEST DEBUGGING
-// ==========================================================
-
+// Never log Authorization headers, cookies, API keys or request bodies.
 if (!IS_PRODUCTION) {
   app.use((req, res, next) => {
-    console.log(
-      `[REQUEST] ${req.method} ${req.originalUrl}`
-    );
-
+    console.log(`[REQUEST] ${req.method} ${req.originalUrl}`);
     next();
   });
 }
 
 // ==========================================================
-// STARTUP INFORMATION
+// STARTUP BANNER
 // ==========================================================
 
 console.log("");
 console.log("========================================");
-console.log("🔥 AiTradeX Backend Initializing");
+console.log(" AiTradeX Backend Initializing");
 console.log("========================================");
 
-console.log(
-  `📦 Environment : ${NODE_ENV}`
-);
+console.log(`Environment : ${NODE_ENV}`);
+console.log(`Port        : ${PORT}`);
 
 console.log(
-  `🔌 Port        : ${PORT}`
-);
-
-console.log(
-  `🗄️ MongoDB     : ${
-    process.env.MONGODB_URI
-      ? "Configured"
-      : "Not Configured"
+  `MongoDB URI : ${
+    process.env.MONGODB_URI ? "Configured" : "Missing"
   }`
 );
 
 console.log(
-  `🔐 Firebase    : ${
-    process.env.FIREBASE_PROJECT_ID
+  `Firebase    : ${
+    process.env.FIREBASE_PROJECT_ID ||
+    process.env.FIREBASE_SERVICE_ACCOUNT
       ? "Configured"
-      : "Check Config"
+      : "Check configuration"
   }`
 );
 
 console.log(
-  `🤖 Groq        : ${
-    process.env.GROQ_API_KEY
-      ? "Configured"
-      : "Not Configured"
+  `Groq        : ${
+    process.env.GROQ_API_KEY ? "Configured" : "Missing"
   }`
 );
 
 console.log(
-  `📈 Upstox      : ${
-    process.env.UPSTOX_CLIENT_ID
-      ? "Configured"
-      : "Not Configured"
+  `Upstox      : ${
+    process.env.UPSTOX_CLIENT_ID ? "Configured" : "Missing client ID"
   }`
-);
-
-console.log(
-  "🪙 Coins       : Enabled"
-);
-
-console.log(
-  "💰 Coin Value  : 1 Coin = ₹1"
-);
-
-console.log(
-  "🔓 Stock Unlock: 100 Coins"
-);
-
-console.log(
-  `🎁 Referral Reward: ${
-    Number(process.env.REFERRAL_REWARD_COINS) || 250
-  } Coins`
 );
 
 console.log("========================================");
 console.log("");
 
 // ==========================================================
-// ROOT HEALTH CHECK
+// HEALTH ENDPOINTS
 // ==========================================================
 
+// Liveness: confirms that the Node process is responding.
 app.get("/", (req, res) => {
   return res.status(200).json({
     success: true,
@@ -275,22 +175,42 @@ app.get("/", (req, res) => {
   });
 });
 
-// ==========================================================
-// API HEALTH CHECK
-// ==========================================================
-
-app.get("/api/health", (req, res) => {
+app.get("/healthz", (req, res) => {
   return res.status(200).json({
     success: true,
+    status: "alive",
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Readiness: report the real MongoDB connection state.
+app.get("/api/health", (req, res) => {
+  const databaseConnected = mongoose.connection.readyState === 1;
+
+  return res.status(databaseConnected ? 200 : 503).json({
+    success: databaseConnected,
     service: "AiTradeX Backend",
-    status: "healthy",
+    status: databaseConnected ? "healthy" : "not_ready",
     environment: NODE_ENV,
-    database: "connected",
+
+    database: databaseConnected ? "connected" : "disconnected",
+
     coinSystem: {
       enabled: true,
       coinValueInr: 1,
       stockUnlockCost: 100,
     },
+
+    ai: {
+      provider: "Groq",
+      configured: Boolean(process.env.GROQ_API_KEY),
+    },
+
+    marketData: {
+      provider: "Upstox",
+      configured: Boolean(process.env.UPSTOX_CLIENT_ID),
+    },
+
     timestamp: new Date().toISOString(),
   });
 });
@@ -300,300 +220,53 @@ app.get("/api/health", (req, res) => {
 // ==========================================================
 
 console.log("========================================");
-console.log("📦 Loading API Routes");
+console.log("Loading AiTradeX API Routes");
 console.log("========================================");
 
-// ==========================================================
-// AUTH ROUTES
-// ==========================================================
-//
-// Base:
-// /api/auth
-//
-// Examples:
-// POST /api/auth/google
-// POST /api/auth/send-phone-otp
-// POST /api/auth/verify-phone-otp
-// POST /api/auth/resend-phone-otp
-//
-// ==========================================================
+// AUTH
+app.use("/api/auth", authRoutes);
+console.log("Auth routes       : /api/auth");
 
-app.use(
-  "/api/auth",
-  authRoutes
-);
+// USERS
+app.use("/api/users", userRoutes);
+console.log("User routes       : /api/users");
 
-console.log(
-  "✅ Auth Routes Loaded"
-);
+// AI CHATBOT
+app.use("/api/ai", aiRoutes);
+console.log("AI routes         : /api/ai");
+console.log("  POST   /api/ai/chat");
+console.log("  GET    /api/ai/chats");
+console.log("  GET    /api/ai/chats/:chatId");
+console.log("  DELETE /api/ai/chats/:chatId");
 
-// ==========================================================
-// USER ROUTES
-// ==========================================================
-//
-// Base:
-// /api/users
-//
-// Firebase authentication middleware is handled
-// inside the relevant user routes.
-//
+// UPSTOX
+app.use("/api/upstox", upstoxRoutes);
+console.log("Upstox routes     : /api/upstox");
 
-app.use(
-  "/api/users",
-  userRoutes
-);
+// PROFILE UPLOAD
+app.use("/api/upload", profileUploadRoutes);
+console.log("Profile upload    : /api/upload");
 
-console.log(
-  "✅ User Routes Loaded"
-);
+// COINS
+app.use("/api/coins", coinRoutes);
+console.log("Coin routes       : /api/coins");
 
-// ==========================================================
-// AI ROUTES
-// ==========================================================
-//
-// Base:
-// /api/ai
-//
-// Example:
-// POST /api/ai/chat
-//
-// Authentication:
-// Authorization: Bearer <Firebase ID Token>
-//
-// ==========================================================
+// COIN PAYMENTS
+app.use("/api/coins/payment", coinPaymentRoutes);
+console.log("Coin payments     : /api/coins/payment");
 
-app.use(
-  "/api/ai",
-  aiRoutes
-);
-
-console.log(
-  "✅ AI Routes Loaded"
-);
-
-// ==========================================================
-// UPSTOX ROUTES
-// ==========================================================
-//
-// Base:
-// /api/upstox
-//
-// OAuth:
-//
-// GET /api/upstox/login
-// GET /api/upstox/callback
-//
-// Market:
-//
-// GET /api/upstox/market-data
-//
-// ==========================================================
-
-app.use(
-  "/api/upstox",
-  upstoxRoutes
-);
-
-console.log(
-  "✅ Upstox Routes Loaded"
-);
-
-// ==========================================================
-// PROFILE IMAGE UPLOAD ROUTES
-// ==========================================================
-//
-// POST /api/upload/profile
-//
-// Firebase ID token + multipart image.
-// Images are uploaded directly to Cloudinary.
-//
-// ==========================================================
-
-app.use(
-  "/api/upload",
-  profileUploadRoutes
-);
-
-console.log(
-  "✅ Profile Upload Routes Loaded"
-);
-
-/*
- * AiTradeX Coin System
- *
- * GET  /api/coins/balance
- * GET  /api/coins/history
- * GET  /api/coins/stock/:symbol
- * POST /api/coins/unlock-stock
- *
- * All coin routes are protected by Firebase authentication
- * inside coin.routes.js.
- */
-app.use(
-  "/api/coins",
-  coinRoutes
-);
-
-app.use(
-  "/api/coins/payment",
-  coinPaymentRoutes
-);
-
-// ==========================================================
-// REFERRAL / INVITE ROUTES
-// ==========================================================
-//
-// GET  /api/referrals/me
-// GET  /api/referrals/validate/:code
-// POST /api/referrals/apply
-//
-// All referral routes require Firebase authentication.
-// ==========================================================
-
-app.use(
-  "/api/referrals",
-  referralRoutes
-);
-
-console.log(
-  "✅ Referral Routes Loaded"
-);
-
-console.log(
-  "✅ Coin Routes Loaded"
-);
-
-console.log(
-  "✅ Coin Payment Routes Loaded"
-);
-
-// ==========================================================
-// ROUTE INFORMATION
-// ==========================================================
-
-console.log("========================================");
-console.log("📍 Registered API Routes");
-console.log("========================================");
-
-console.log(
-  "🔐 Auth        : /api/auth"
-);
-
-console.log(
-  "🔑 Google Login: POST /api/auth/google"
-);
-
-console.log(
-  "📱 Phone OTP   : POST /api/auth/send-phone-otp"
-);
-
-console.log(
-  "📱 Verify OTP  : POST /api/auth/verify-phone-otp"
-);
-
-console.log(
-  "📱 Resend OTP  : POST /api/auth/resend-phone-otp"
-);
-
-console.log(
-  "👤 Users       : /api/users"
-);
-
-console.log(
-  "🖼️ Profile Image: POST /api/upload/profile"
-);
-
-console.log(
-  "🤖 AI          : /api/ai"
-);
-
-console.log(
-  "📈 Upstox      : /api/upstox"
-);
-
-console.log(
-  "🔗 Upstox Login: /api/upstox/login"
-);
-
-console.log(
-  "📊 Market Data : /api/upstox/market-data"
-);
-
-console.log(
-  "🪙 Coins       : /api/coins"
-);
-
-console.log(
-  "💰 Coin Balance: /api/coins/balance"
-);
-
-console.log(
-  "📜 Coin History: /api/coins/history"
-);
-
-console.log(
-  "🔓 Stock Unlock: /api/coins/unlock-stock"
-);
-
-console.log(
-  "💳 Coin Payment: /api/coins/payment/create-order"
-);
-
-console.log(
-  "✅ Coin Verify : /api/coins/payment/verify"
-);
-
-console.log(
-  "🎁 Referrals   : /api/referrals"
-);
-
-console.log(
-  "🎁 My Invite   : GET /api/referrals/me"
-);
-
-console.log(
-  "🎁 Validate    : GET /api/referrals/validate/:code"
-);
-
-console.log(
-  "🎁 Apply       : POST /api/referrals/apply"
-);
+// REFERRALS
+app.use("/api/referrals", referralRoutes);
+console.log("Referral routes   : /api/referrals");
 
 console.log("========================================");
 console.log("");
 
 // ==========================================================
-// 404 HANDLER
+// 404 HANDLER - MUST FOLLOW ALL ROUTES
 // ==========================================================
-//
-// IMPORTANT:
-// This MUST be after all API routes.
-//
 
 app.use((req, res) => {
-  console.log("");
-  console.log("========================================");
-  console.log("❌ ROUTE NOT FOUND");
-  console.log("========================================");
-
-  console.log(
-    "METHOD :",
-    req.method
-  );
-
-  console.log(
-    "URL    :",
-    req.originalUrl
-  );
-
-  console.log(
-    "IP     :",
-    req.ip
-  );
-
-  console.log("========================================");
-  console.log("");
-
   return res.status(404).json({
     success: false,
     message: "Route not found",
@@ -603,544 +276,288 @@ app.use((req, res) => {
 });
 
 // ==========================================================
-// GLOBAL ERROR HANDLER
+// GLOBAL ERROR HANDLER - MUST BE LAST
 // ==========================================================
-//
-// IMPORTANT:
-// This MUST remain the final middleware.
-//
 
-app.use(
-  (error, req, res, next) => {
-    console.error("");
-    console.error(
-      "========================================"
-    );
-    console.error(
-      "❌ GLOBAL SERVER ERROR"
-    );
-    console.error(
-      "========================================"
-    );
-
-    console.error(
-      "Method :",
-      req.method
-    );
-
-    console.error(
-      "URL    :",
-      req.originalUrl
-    );
-
-    console.error(
-      "Message:",
-      error?.message
-    );
-
-    if (error?.stack) {
-      console.error(
-        "Stack  :",
-        error.stack
-      );
-    }
-
-    console.error(
-      "========================================"
-    );
-    console.error("");
-
-    // CORS error
-    if (
-      error?.message ===
-      "CORS origin not allowed"
-    ) {
-      return res.status(403).json({
-        success: false,
-        message: "CORS origin not allowed",
-      });
-    }
-
-    // Express/body-parser errors
-    if (
-      error?.type ===
-      "entity.too.large"
-    ) {
-      return res.status(413).json({
-        success: false,
-        message: "Request payload is too large.",
-      });
-    }
-
-    const statusCode =
-      Number(error?.status) ||
-      Number(error?.statusCode) ||
-      500;
-
-    const response = {
-      success: false,
-      message:
-        IS_PRODUCTION && statusCode === 500
-          ? "Internal server error."
-          : error?.message ||
-            "Internal server error.",
-    };
-
-    if (!IS_PRODUCTION) {
-      response.stack = error?.stack;
-    }
-
-    return res
-      .status(statusCode)
-      .json(response);
+app.use((error, req, res, next) => {
+  if (res.headersSent) {
+    return next(error);
   }
-);
+
+  const statusCode =
+    Number(error.status) ||
+    Number(error.statusCode) ||
+    (error.type === "entity.too.large" ? 413 : 500);
+
+  console.error("[SERVER ERROR]", {
+    method: req.method,
+    path: req.originalUrl,
+    statusCode,
+    message: error.message,
+  });
+
+  let message = "Internal server error.";
+
+  if (error.message === "CORS origin not allowed") {
+    message = "CORS origin not allowed.";
+  } else if (error.type === "entity.too.large") {
+    message = "Request payload is too large.";
+  } else if (!IS_PRODUCTION && error.message) {
+    message = error.message;
+  }
+
+  const response = {
+    success: false,
+    message,
+  };
+
+  if (!IS_PRODUCTION && error.stack) {
+    response.stack = error.stack;
+  }
+
+  return res.status(statusCode).json(response);
+});
 
 // ==========================================================
 // ENVIRONMENT VALIDATION
 // ==========================================================
 
-const validateEnvironment = () => {
+function validateEnvironment() {
   const warnings = [];
 
-  // --------------------------------------------------------
-  // MongoDB
-  // --------------------------------------------------------
-
+  // MONGODB
   if (!process.env.MONGODB_URI) {
-    warnings.push(
-      "MONGODB_URI is not configured"
-    );
+    warnings.push("MONGODB_URI is not configured.");
   }
 
-  // --------------------------------------------------------
-  // Firebase
-  // --------------------------------------------------------
-
+  // FIREBASE
   if (
     !process.env.FIREBASE_PROJECT_ID &&
     !process.env.FIREBASE_SERVICE_ACCOUNT
   ) {
     warnings.push(
-      "Firebase environment configuration was not detected"
+      "Firebase environment configuration was not detected."
     );
   }
 
-  // --------------------------------------------------------
-  // Groq
-  // --------------------------------------------------------
-
+  // GROQ
   if (!process.env.GROQ_API_KEY) {
     warnings.push(
-      "GROQ_API_KEY is not configured"
+      "GROQ_API_KEY is not configured; AI chat will not work."
     );
   }
 
-  // --------------------------------------------------------
-  // Referral / Invite Rewards
-  // --------------------------------------------------------
-
-  if (!process.env.REFERRAL_REWARD_COINS) {
-    console.log(
-      "ℹ️ REFERRAL_REWARD_COINS not configured. Default: 250"
-    );
-  }
-
-  // --------------------------------------------------------
-  // Upstox
-  // --------------------------------------------------------
-
+  // UPSTOX
   if (!process.env.UPSTOX_CLIENT_ID) {
-    warnings.push(
-      "UPSTOX_CLIENT_ID is not configured"
-    );
+    warnings.push("UPSTOX_CLIENT_ID is not configured.");
   }
 
   if (!process.env.UPSTOX_CLIENT_SECRET) {
-    warnings.push(
-      "UPSTOX_CLIENT_SECRET is not configured"
-    );
+    warnings.push("UPSTOX_CLIENT_SECRET is not configured.");
   }
 
   if (!process.env.UPSTOX_REDIRECT_URI) {
-    warnings.push(
-      "UPSTOX_REDIRECT_URI is not configured"
-    );
+    warnings.push("UPSTOX_REDIRECT_URI is not configured.");
   }
 
-  // --------------------------------------------------------
-  // Display warnings
-  // --------------------------------------------------------
+  // REFERRAL
+  if (!process.env.REFERRAL_REWARD_COINS) {
+    console.log("Referral reward default: 250 coins.");
+  }
 
   if (warnings.length > 0) {
-    console.log("");
-    console.log(
-      "========================================"
-    );
-    console.log(
-      "⚠️ ENVIRONMENT WARNINGS"
-    );
-    console.log(
-      "========================================"
-    );
+    console.warn("");
+    console.warn("Environment warnings:");
 
     warnings.forEach((warning) => {
-      console.log(`⚠️ ${warning}`);
+      console.warn(`- ${warning}`);
     });
 
-    console.log(
-      "========================================"
-    );
-    console.log("");
+    console.warn("");
   }
-
-  return warnings;
-};
+}
 
 // ==========================================================
-// START SERVER
+// SERVER STARTUP
 // ==========================================================
 
 let server = null;
+let isShuttingDown = false;
 
-const startServer = async () => {
+async function startServer() {
   try {
-    // ======================================================
-    // ENVIRONMENT VALIDATION
-    // ======================================================
-
-    console.log(
-      "🔍 Checking environment configuration..."
-    );
+    console.log("Checking environment configuration...");
 
     validateEnvironment();
 
-    // ======================================================
-    // CONNECT DATABASE
-    // ======================================================
-
-    console.log("");
-    console.log(
-      "🔌 Connecting to MongoDB..."
-    );
-
-    await connectDB();
-
-    console.log(
-      "✅ MongoDB Connected"
-    );
-
-    // ======================================================
-    // SERVER INFORMATION
-    // ======================================================
-
-    console.log("");
-    console.log(
-      "========================================"
-    );
-    console.log(
-      "🚀 AiTradeX Backend Started"
-    );
-    console.log(
-      "========================================"
-    );
-
-    console.log(
-      `🌐 Environment : ${NODE_ENV}`
-    );
-
-    console.log(
-      `🔌 Port        : ${PORT}`
-    );
-
-    console.log(
-      "🤖 AI Provider : Groq"
-    );
-
-    console.log(
-      "🧠 AI Model    : openai/gpt-oss-120b"
-    );
-
-    console.log(
-      `📈 Upstox      : ${
-        process.env.UPSTOX_CLIENT_ID
-          ? "Enabled"
-          : "Disabled"
-      }`
-    );
-
-    console.log(
-      "========================================"
-    );
-
-    // ======================================================
-    // START EXPRESS SERVER
-    // ======================================================
-
-    server = app.listen(
-      PORT,
-      "0.0.0.0",
-      () => {
-        console.log("");
-        console.log(
-          "========================================"
-        );
-
-        console.log(
-          `🚀 Server listening on port ${PORT}`
-        );
-
-        console.log(
-          `🏠 Local      : http://localhost:${PORT}`
-        );
-
-        if (
-          process.env.RENDER_EXTERNAL_URL
-        ) {
-          console.log(
-            `🌍 Render     : ${process.env.RENDER_EXTERNAL_URL}`
-          );
-        }
-
-        console.log(
-          "❤️ Health     : /api/health"
-        );
-
-        console.log(
-          "🔐 Auth       : /api/auth"
-        );
-
-        console.log(
-          "👤 Users      : /api/users"
-        );
-
-        console.log(
-          "🖼️ Profile Image: /api/upload/profile"
-        );
-
-        console.log(
-          "🤖 AI         : /api/ai"
-        );
-
-        console.log(
-          "📈 Upstox      : /api/upstox"
-        );
-
-        console.log(
-          "🔗 Upstox Login: /api/upstox/login"
-        );
-
-        console.log(
-          `📊 Market Data : /api/upstox/market-data`
-        );
-
-        console.log(
-          "🪙 Coins       : /api/coins"
-        );
-
-        console.log(
-          "💰 Coin Balance: /api/coins/balance"
-        );
-
-        console.log(
-          "🔓 Stock Unlock: /api/coins/unlock-stock"
-        );
-
-        console.log(
-          "========================================"
-        );
-
-        console.log("");
-      }
-    );
-
-    // ======================================================
-    // HTTP SERVER ERROR
-    // ======================================================
-
-    server.on(
-      "error",
-      (error) => {
-        console.error("");
-        console.error(
-          "========================================"
-        );
-
-        console.error(
-          "❌ HTTP SERVER ERROR"
-        );
-
-        console.error(
-          "========================================"
-        );
-
-        console.error(
-          "Message:",
-          error.message
-        );
-
-        console.error(
-          "Code:",
-          error.code
-        );
-
-        console.error(
-          "========================================"
-        );
-
-        console.error("");
-
-        process.exit(1);
-      }
-    );
-  } catch (error) {
-    // ======================================================
-    // STARTUP ERROR
-    // ======================================================
-
-    console.error("");
-    console.error(
-      "========================================"
-    );
-
-    console.error(
-      "❌ SERVER STARTUP FAILED"
-    );
-
-    console.error(
-      "========================================"
-    );
-
-    console.error(
-      "Message:",
-      error?.message
-    );
-
-    if (error?.stack) {
-      console.error(
-        "Stack:",
-        error.stack
+    // MongoDB is required for AiTradeX API functionality.
+    if (!process.env.MONGODB_URI) {
+      throw new Error(
+        "MONGODB_URI is required. Server startup cancelled."
       );
     }
 
-    console.error(
-      "========================================"
-    );
+    // CONNECT DATABASE BEFORE ACCEPTING REQUESTS.
+    console.log("Connecting to MongoDB Atlas...");
 
+    await connectDB();
+
+    if (mongoose.connection.readyState !== 1) {
+      throw new Error(
+        "MongoDB connection did not reach the connected state."
+      );
+    }
+
+    console.log("MongoDB Atlas connected successfully.");
+
+    // START EXPRESS SERVER.
+    server = app.listen(PORT, "0.0.0.0", () => {
+      console.log("");
+      console.log("========================================");
+      console.log("AiTradeX Backend Started");
+      console.log("========================================");
+
+      console.log(`Environment : ${NODE_ENV}`);
+      console.log(`Port        : ${PORT}`);
+      console.log(`Local       : http://localhost:${PORT}`);
+
+      if (process.env.RENDER_EXTERNAL_URL) {
+        console.log(
+          `Render URL  : ${process.env.RENDER_EXTERNAL_URL}`
+        );
+      }
+
+      console.log("Health      : /api/health");
+      console.log("AI Chat     : /api/ai/chat");
+      console.log("Chat History: /api/ai/chats");
+      console.log("Upstox      : /api/upstox");
+
+      console.log("========================================");
+      console.log("");
+    });
+
+    server.on("error", (error) => {
+      console.error("[HTTP SERVER ERROR]", error.message);
+
+      if (error.code === "EADDRINUSE") {
+        console.error(`Port ${PORT} is already in use.`);
+      }
+
+      process.exitCode = 1;
+      void gracefulShutdown("HTTP_SERVER_ERROR");
+    });
+  } catch (error) {
     console.error("");
+    console.error("========================================");
+    console.error("AiTradeX server startup failed");
+    console.error("========================================");
 
-    process.exit(1);
+    console.error(error.message);
+
+    if (!IS_PRODUCTION && error.stack) {
+      console.error(error.stack);
+    }
+
+    console.error("========================================");
+
+    process.exitCode = 1;
+
+    await gracefulShutdown("STARTUP_FAILURE");
   }
-};
+}
 
 // ==========================================================
 // GRACEFUL SHUTDOWN
 // ==========================================================
 
-const gracefulShutdown = async (
-  signal
-) => {
-  console.log("");
-  console.log(
-    `🛑 ${signal} received. Shutting down...`
-  );
-
-  if (!server) {
-    process.exit(0);
+async function gracefulShutdown(signal) {
+  if (isShuttingDown) {
+    return;
   }
 
-  server.close(() => {
-    console.log(
-      "✅ HTTP server closed."
-    );
+  isShuttingDown = true;
 
-    process.exit(0);
-  });
+  console.log(`\n${signal} received. Shutting down AiTradeX...`);
 
-  // Safety timeout
-  setTimeout(() => {
-    console.error(
-      "⚠️ Forced shutdown after timeout."
-    );
-
+  const forceExit = setTimeout(() => {
+    console.error("Forced shutdown after 10 seconds.");
     process.exit(1);
-  }, 10000).unref();
-};
+  }, 10000);
+
+  forceExit.unref();
+
+  try {
+    // CLOSE HTTP SERVER.
+    if (server) {
+      await new Promise((resolve) => {
+        server.close((error) => {
+          if (error) {
+            console.error("HTTP close error:", error.message);
+          } else {
+            console.log("HTTP server closed.");
+          }
+
+          resolve();
+        });
+      });
+    }
+
+    // CLOSE MONGODB.
+    if (mongoose.connection.readyState !== 0) {
+      await mongoose.connection.close();
+      console.log("MongoDB connection closed.");
+    }
+
+    clearTimeout(forceExit);
+
+    console.log("AiTradeX shutdown complete.");
+
+    if (signal === "SIGTERM" || signal === "SIGINT") {
+      process.exit(0);
+    }
+  } catch (error) {
+    console.error("Shutdown error:", error.message);
+
+    clearTimeout(forceExit);
+    process.exit(1);
+  }
+}
+
+// ==========================================================
+// PROCESS SIGNALS
+// ==========================================================
+
+process.on("SIGTERM", () => {
+  void gracefulShutdown("SIGTERM");
+});
+
+process.on("SIGINT", () => {
+  void gracefulShutdown("SIGINT");
+});
 
 // ==========================================================
 // PROCESS ERROR HANDLERS
 // ==========================================================
 
-process.on(
-  "unhandledRejection",
-  (reason) => {
-    console.error("");
-    console.error(
-      "========================================"
-    );
-    console.error(
-      "❌ UNHANDLED PROMISE REJECTION"
-    );
-    console.error(
-      "========================================"
-    );
+process.on("unhandledRejection", (reason) => {
+  console.error("[UNHANDLED PROMISE REJECTION]", reason);
+});
 
-    console.error(reason);
+process.on("uncaughtException", (error) => {
+  console.error("[UNCAUGHT EXCEPTION]", error);
 
-    console.error(
-      "========================================"
-    );
-    console.error("");
-  }
-);
+  process.exitCode = 1;
 
-process.on(
-  "uncaughtException",
-  (error) => {
-    console.error("");
-    console.error(
-      "========================================"
-    );
-    console.error(
-      "❌ UNCAUGHT EXCEPTION"
-    );
-    console.error(
-      "========================================"
-    );
-
-    console.error(
-      error?.stack || error
-    );
-
-    console.error(
-      "========================================"
-    );
-    console.error("");
-
-    process.exit(1);
-  }
-);
-
-// ==========================================================
-// SIGNAL HANDLERS
-// ==========================================================
-
-process.on(
-  "SIGTERM",
-  () => {
-    gracefulShutdown("SIGTERM");
-  }
-);
-
-process.on(
-  "SIGINT",
-  () => {
-    gracefulShutdown("SIGINT");
-  }
-);
+  void gracefulShutdown("UNCAUGHT_EXCEPTION");
+});
 
 // ==========================================================
 // START APPLICATION
 // ==========================================================
 
-startServer();
+void startServer();
+
+module.exports = {
+  app,
+  startServer,
+};
