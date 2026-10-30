@@ -164,48 +164,88 @@ function average(values) {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+function normalizeExchange(value) {
+  const raw = cleanString(value).toUpperCase();
+  if (raw === "NSE" || raw.startsWith("NSE_") || raw.includes("NSE")) return "NSE";
+  if (raw === "BSE" || raw.startsWith("BSE_") || raw.includes("BSE")) return "BSE";
+  return raw;
+}
+
+function getInstrumentRows(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.instruments)) return payload.instruments;
+  if (Array.isArray(payload?.data?.instruments)) return payload.data.instruments;
+  return [];
+}
+
 async function resolveEquity({ symbol, instrumentKey, exchange }) {
-  const cleanSymbol = cleanString(symbol).toUpperCase();
+  const cleanSymbol = cleanString(symbol || "").toUpperCase().replace(/\s+/g, "");
   const cleanKey = cleanString(instrumentKey);
-  const cleanExchange = cleanString(exchange || "NSE").toUpperCase();
+  const cleanExchange = normalizeExchange(exchange || "NSE");
 
   if (!["NSE", "BSE"].includes(cleanExchange)) {
-    throw apiError("exchange must be NSE or BSE.", 400, "INVALID_EXCHANGE");
+    throw apiError("Exchange must be NSE or BSE.", 400, "INVALID_EXCHANGE");
   }
   if (!cleanSymbol && !cleanKey) {
-    throw apiError("Provide a stock symbol or instrumentKey.", 400, "ENTRY_INSTRUMENT_REQUIRED");
+    throw apiError("Enter a valid stock symbol, such as HDFCBANK or RELIANCE.", 400, "ENTRY_INSTRUMENT_REQUIRED");
+  }
+  if (cleanSymbol && !/^[A-Z0-9&._-]{1,30}$/.test(cleanSymbol)) {
+    throw apiError("Stock symbol contains unsupported characters.", 400, "INVALID_STOCK_SYMBOL");
   }
 
-  let instruments;
+  let payload;
   try {
-    instruments = await loadInstrumentMaster();
+    payload = await loadInstrumentMaster();
   } catch (error) {
-    throw apiError(`Unable to load the Upstox instrument master: ${error.message}`, 503, "INSTRUMENT_MASTER_UNAVAILABLE");
+    throw apiError(
+      `Unable to load the Upstox instrument master: ${error.message}`,
+      503,
+      "INSTRUMENT_MASTER_UNAVAILABLE"
+    );
   }
 
-  const rows = Array.isArray(instruments) ? instruments : [];
+  const rows = getInstrumentRows(payload);
+  if (!rows.length) {
+    throw apiError("The Upstox instrument master is empty or has an unsupported response format.", 503, "INSTRUMENT_MASTER_EMPTY");
+  }
+
   const match = rows.find((item) => {
-    const key = cleanString(item.instrumentKey || item.instrument_key);
-    const itemSymbol = cleanString(item.symbol || item.trading_symbol).toUpperCase();
-    const itemExchange = cleanString(item.exchange).toUpperCase();
-    const isEquity = cleanString(item.category).toLowerCase() === "stock" ||
-      cleanString(item.instrumentType || item.instrument_type).toUpperCase() === "EQ";
-    return isEquity && itemExchange === cleanExchange &&
-      (cleanKey ? key === cleanKey : itemSymbol === cleanSymbol);
+    const key = cleanString(item.instrumentKey || item.instrument_key || item.instrumentToken || item.instrument_token);
+    const itemSymbol = cleanString(
+      item.symbol || item.trading_symbol || item.tradingSymbol || item.tradingsymbol || item.short_name
+    ).toUpperCase().replace(/\s+/g, "");
+    const rawExchange = item.exchange || item.exchange_segment || item.segment || item.instrumentKey?.split("|")?.[0];
+    const itemExchange = normalizeExchange(rawExchange);
+    const rawType = cleanString(
+      item.instrumentType || item.instrument_type || item.instrument_type_name || item.type
+    ).toUpperCase();
+    const rawCategory = cleanString(item.category || item.asset_type || item.instrument_category).toLowerCase();
+    const equity = rawType === "EQ" || rawType === "EQUITY" ||
+      rawCategory === "stock" || rawCategory === "equity" ||
+      rawCategory === "stocks" ||
+      (!rawType && !rawCategory && (itemExchange === "NSE" || itemExchange === "BSE") &&
+        (key.includes("_EQ|") || key.includes("|EQ|")));
+    const symbolMatches = cleanSymbol && itemSymbol === cleanSymbol;
+    const keyMatches = cleanKey && key === cleanKey;
+    return equity && itemExchange === cleanExchange && (keyMatches || symbolMatches);
   });
 
-  if (!match?.instrumentKey && !match?.instrument_key) {
+  const resolvedKey = cleanString(
+    match?.instrumentKey || match?.instrument_key || match?.instrumentToken || match?.instrument_token
+  );
+  if (!match || !resolvedKey) {
     throw apiError(
-      `${cleanSymbol || cleanKey} was not found as an ${cleanExchange} equity in the Upstox instrument master.`,
+      `${cleanSymbol || cleanKey} was not found as an ${cleanExchange} equity in the Upstox instrument master. Check that the instrument master is updated and the symbol is the trading symbol.`,
       404,
       "UPSTOX_EQUITY_NOT_FOUND"
     );
   }
 
   return {
-    instrumentKey: cleanString(match.instrumentKey || match.instrument_key),
-    symbol: cleanString(match.symbol || match.trading_symbol),
-    name: cleanString(match.name || match.symbol || match.trading_symbol),
+    instrumentKey: resolvedKey,
+    symbol: cleanString(match.symbol || match.trading_symbol || match.tradingSymbol || match.tradingsymbol || cleanSymbol),
+    name: cleanString(match.name || match.company_name || match.short_name || match.symbol || match.trading_symbol || cleanSymbol),
     exchange: cleanExchange,
   };
 }
