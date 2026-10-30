@@ -348,44 +348,95 @@ async function getSingleStockContext(question) {
 async function listChats(req, res) {
   try {
     const userId = req.userId;
+
     if (!userId) {
-      return res.status(401).json({ success: false, message: "Authentication required." });
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required.",
+      });
     }
 
+    // AiConversation is the main collection for chat history.
     const conversations = await AiConversation.find({ userId })
       .sort({ lastMessageAt: -1, updatedAt: -1 })
       .limit(MAX_CONVERSATIONS)
       .lean();
 
-    const legacy = await AiChat.find({ userId })
+    // Normalize messages to detect duplicate legacy records.
+    const normalizeMessage = (value) =>
+      String(value || "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .toLowerCase();
+
+    // Collect user messages already saved in AiConversation.
+    const modernMessages = new Set();
+
+    for (const conversation of conversations) {
+      for (const message of conversation.messages || []) {
+        if (message.role === "user" && message.content) {
+          modernMessages.add(normalizeMessage(message.content));
+        }
+      }
+    }
+
+    // Fetch older legacy chats.
+    const legacyChats = await AiChat.find({ userId })
       .sort({ createdAt: -1 })
-      .limit(MAX_CONVERSATIONS)
+      .limit(MAX_CONVERSATIONS * 2)
       .lean();
 
-    const modernIds = new Set(conversations.map((item) => String(item._id)));
-    const legacyDtos = legacy
-      .filter((item) => !modernIds.has(String(item._id)))
-      .map((item) => ({
-        _id: String(item._id),
-        title: String(item.message || "Previous chat").slice(0, 60),
-        preview: String(item.reply || ""),
-        lastMessageAt: item.createdAt,
+    const seenLegacyMessages = new Set();
+    const legacyDtos = [];
+
+    for (const chat of legacyChats) {
+      const messageKey = normalizeMessage(chat.message);
+
+      // Ignore empty messages and duplicate conversations.
+      if (
+        !messageKey ||
+        modernMessages.has(messageKey) ||
+        seenLegacyMessages.has(messageKey)
+      ) {
+        continue;
+      }
+
+      seenLegacyMessages.add(messageKey);
+
+      legacyDtos.push({
+        _id: String(chat._id),
+        title: String(chat.message || "Previous chat").slice(0, 60),
+        preview: String(chat.reply || ""),
+        lastMessageAt: chat.createdAt,
         messageCount: 2,
         legacy: true,
-      }));
+      });
+    }
 
-    const combined = [
+    // Combine modern conversations with only unmatched legacy chats.
+    const combinedChats = [
       ...conversations.map(conversationDto),
       ...legacyDtos,
-    ].sort((a, b) => new Date(b.lastMessageAt || 0) - new Date(a.lastMessageAt || 0));
+    ].sort(
+      (a, b) =>
+        new Date(b.lastMessageAt || 0) -
+        new Date(a.lastMessageAt || 0)
+    );
 
     return res.status(200).json({
       success: true,
-      chats: combined.slice(0, MAX_CONVERSATIONS * 2),
+      chats: combinedChats.slice(0, MAX_CONVERSATIONS),
     });
   } catch (error) {
-    console.error("[AiTradeX AI] List chats failed:", error.message);
-    return res.status(500).json({ success: false, message: "Unable to load saved conversations." });
+    console.error(
+      "[AiTradeX AI] List chats failed:",
+      error.message
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to load saved conversations.",
+    });
   }
 }
 
@@ -524,11 +575,19 @@ async function chatWithAi(req, res) {
     conversation.lastMessageAt = new Date();
     await conversation.save();
 
-    try {
-      await AiChat.create({ userId, message, reply: cleanReply, model: GROQ_MODEL });
-    } catch (legacyError) {
-      console.warn("[AiTradeX AI] Legacy chat mirror failed:", legacyError.message);
-    }
+try {
+  await AiChat.create({
+    userId,
+    message,
+    reply: cleanReply,
+    model: GROQ_MODEL,
+  });
+} catch (legacyError) {
+  console.warn(
+    "[AiTradeX AI] Legacy chat mirror failed:",
+    legacyError.message
+  );
+}
 
     return res.status(200).json({
       success: true,
