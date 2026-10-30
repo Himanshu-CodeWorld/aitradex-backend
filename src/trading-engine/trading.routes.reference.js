@@ -1,0 +1,14 @@
+"use strict";
+
+const express = require("express");
+const router = express.Router();
+const tradingController = require("./trading.controller");
+
+router.get("/dashboard", tradingController.getDashboard);
+router.post("/scanner/run", tradingController.runScanner);
+router.get("/scanner/results", tradingController.getScannerResults);
+router.post("/entry/analyze", tradingController.analyzeEntry);
+router.post("/exit/plan", tradingController.createExitPlan);
+router.post("/risk/check", tradingController.checkRisk);
+
+module.exports = router;

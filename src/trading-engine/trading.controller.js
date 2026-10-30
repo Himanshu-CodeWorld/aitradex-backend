@@ -3,6 +3,7 @@
 const scannerService = require("./scanner/scanner.service");
 const entryService = require("./entry/entry.service");
 const exitService = require("./exit/exit.service");
+const riskService = require("./risk/risk.service");
 
 function sendError(res, error, fallback) {
   const statusCode = Number(error.statusCode) || 500;
@@ -25,7 +26,7 @@ exports.getDashboard = async (req, res) => res.status(200).json({
       scanner: "AVAILABLE",
       entry: "AVAILABLE_DAILY_TECHNICAL_ANALYSIS",
       exit: "AVAILABLE_DAILY_POSITION_ANALYSIS",
-      risk: "NOT_IMPLEMENTED",
+      risk: "AVAILABLE_PORTFOLIO_AND_POSITION_SIZING",
       backtesting: "NOT_IMPLEMENTED",
       brokerExecution: "DISABLED",
     },
@@ -73,8 +74,15 @@ exports.createExitPlan = async (req, res) => {
   }
 };
 
-exports.checkRisk = async (req, res) => res.status(501).json({
-  success: false,
-  message: "Portfolio risk validation is not implemented yet.",
-  code: "RISK_CHECK_NOT_IMPLEMENTED",
-});
+exports.checkRisk = async (req, res) => {
+  try {
+    const result = riskService.calculateRisk(req.body || {});
+    return res.status(200).json({
+      success: true,
+      message: "Portfolio risk assessment completed.",
+      data: result,
+    });
+  } catch (error) {
+    return sendError(res, error, "Unable to calculate portfolio risk. Check the supplied position and account values.");
+  }
+};
