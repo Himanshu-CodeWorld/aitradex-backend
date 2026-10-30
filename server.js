@@ -24,6 +24,8 @@ const coinRoutes = require("./src/routes/coin.routes");
 const coinPaymentRoutes = require("./src/routes/coinPayment.routes");
 const referralRoutes = require("./src/routes/referral.routes");
 const profileUploadRoutes = require("./src/routes/profileUpload.routes");
+const tradingRoutes = require("./src/trading-engine/trading.routes");
+const firebaseAuthMiddleware = require("./src/middleware/firebaseAuth.middleware");
 
 const app = express();
 
@@ -250,6 +252,8 @@ console.log("Coin payments     : /api/coins/payment");
 // REFERRALS
 app.use("/api/referrals", referralRoutes);
 console.log("Referral routes   : /api/referrals");
+
+app.use("/api/trading", firebaseAuthMiddleware, tradingRoutes);
 
 console.log("========================================\n");
 
