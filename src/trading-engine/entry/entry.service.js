@@ -7,7 +7,7 @@ const { UpstoxMarketService } = require("../../upstox/upstox.market.service");
 
 const marketService = new UpstoxMarketService();
 const MIN_CANDLES = 35;
-const HISTORY_DAYS = 180;
+const HISTORY_DAYS = 365;
 const DEFAULT_ATR_MULTIPLIER = 1.5;
 const DEFAULT_TARGET_R_MULTIPLES = [1.5, 2];
 
@@ -214,7 +214,7 @@ async function fetchDailyCandles(instrumentKey) {
   const token = marketService.getAccessToken();
   const toDate = indiaDate();
   const fromDate = dateDaysAgo(HISTORY_DAYS);
-  const path = `/historical-candle/${encodeURIComponent(instrumentKey)}/days/1/${toDate}/${fromDate}`;
+  const path = `/historical-candle/${encodeURIComponent(instrumentKey)}/day/${toDate}/${fromDate}`;
 
   try {
     const response = await axios.get(`${UPSTOX_CONFIG.marketApiBaseUrl}${path}`, {
@@ -390,10 +390,9 @@ async function analyzeEntry(input = {}) {
 
 module.exports = {
   analyzeEntry,
-  // Shared, read-only market-data helpers for the exit analysis module.
+  // Shared read-only market-data helpers for exit and backtesting modules.
   resolveEquity,
   fetchDailyCandles,
   fetchLivePrice,
-  // Exported for unit testing without making any trading API calls.
   _indicators: { ema, calculateRsi, calculateMacd, calculateAtr, parseCandles },
 };

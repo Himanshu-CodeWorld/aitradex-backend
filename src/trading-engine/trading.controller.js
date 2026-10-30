@@ -4,6 +4,7 @@ const scannerService = require("./scanner/scanner.service");
 const entryService = require("./entry/entry.service");
 const exitService = require("./exit/exit.service");
 const riskService = require("./risk/risk.service");
+const backtestService = require("./backtesting/backtest.service");
 
 function sendError(res, error, fallback) {
   const statusCode = Number(error.statusCode) || 500;
@@ -27,7 +28,7 @@ exports.getDashboard = async (req, res) => res.status(200).json({
       entry: "AVAILABLE_DAILY_TECHNICAL_ANALYSIS",
       exit: "AVAILABLE_DAILY_POSITION_ANALYSIS",
       risk: "AVAILABLE_PORTFOLIO_AND_POSITION_SIZING",
-      backtesting: "NOT_IMPLEMENTED",
+      backtesting: "AVAILABLE_DAILY_HISTORICAL_SIMULATION",
       brokerExecution: "DISABLED",
     },
   },
@@ -84,5 +85,19 @@ exports.checkRisk = async (req, res) => {
     });
   } catch (error) {
     return sendError(res, error, "Unable to calculate portfolio risk. Check the supplied position and account values.");
+  }
+};
+
+
+exports.runBacktest = async (req, res) => {
+  try {
+    const result = await backtestService.runBacktest(req.body || {});
+    return res.status(200).json({
+      success: true,
+      message: "Historical backtest completed.",
+      data: result,
+    });
+  } catch (error) {
+    return sendError(res, error, "Unable to run the backtest. Check Upstox connection and selected date range.");
   }
 };
