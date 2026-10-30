@@ -18,7 +18,7 @@ async function generateGroqResponse({
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 40000);
+  const timeout = setTimeout(() => controller.abort(), 55000);
 
   let response;
   try {
@@ -33,12 +33,13 @@ async function generateGroqResponse({
         messages,
         temperature,
         max_completion_tokens: maxTokens,
+        stream: false,
       }),
       signal: controller.signal,
     });
   } catch (error) {
     if (error.name === "AbortError") {
-      throw new Error("Groq request timed out after 40 seconds");
+      throw new Error("Groq request timed out after 55 seconds");
     }
     throw new Error(`Unable to connect to Groq: ${error.message}`);
   } finally {
