@@ -82,15 +82,31 @@ function evaluateQuotes(instruments, quoteData, filters) {
       continue;
     }
 
-    const ltp = Number(quote.last_price);
-    const changePercent = Number(quote.change_percent);
-    const volume = Number(quote.volume ?? 0);
+    const rawLtp = quote.last_price ?? quote.lastPrice ?? quote.ltp;
+    const rawChangePercent = quote.change_percent ?? quote.changePercent;
+    const rawVolume = quote.volume;
 
-    if (!Number.isFinite(ltp) || ltp <= 0 || !Number.isFinite(changePercent)) {
+    // Number(null) becomes 0. Reject missing fields instead of presenting
+    // an invalid quote as a genuine 0% movement or zero-volume observation.
+    const ltp = rawLtp == null || rawLtp === "" ? NaN : Number(rawLtp);
+    const changePercent =
+      rawChangePercent == null || rawChangePercent === ""
+        ? NaN
+        : Number(rawChangePercent);
+    const volume =
+      rawVolume == null || rawVolume === "" ? NaN : Number(rawVolume);
+
+    if (
+      !Number.isFinite(ltp) ||
+      ltp <= 0 ||
+      !Number.isFinite(changePercent) ||
+      !Number.isFinite(volume) ||
+      volume < 0
+    ) {
       missingQuotes.push(key);
       continue;
     }
-    if (!Number.isFinite(volume) || volume < filters.minVolume) continue;
+    if (volume < filters.minVolume) continue;
 
     let status = "NEUTRAL";
     let reason = "Price movement is below the configured threshold.";
@@ -108,8 +124,8 @@ function evaluateQuotes(instruments, quoteData, filters) {
       name: instrument.name || quote.name || instrument.symbol || null,
       exchange: instrument.exchange || filters.exchange,
       ltp,
-      previousClose: quote.close_price ?? null,
-      change: quote.change ?? null,
+      previousClose: quote.close_price ?? quote.prev_close_price ?? null,
+      change: quote.change ?? quote.net_change ?? null,
       changePercent: Number(changePercent.toFixed(4)),
       volume,
       averagePrice: quote.average_price ?? null,

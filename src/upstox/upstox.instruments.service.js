@@ -123,12 +123,15 @@ function isEquityShare({ segment, instrumentType, instrumentKey }) {
   const validSegment = s === "NSE_EQ" || s === "BSE_EQ";
   const validKey = key.startsWith("NSE_EQ|") || key.startsWith("BSE_EQ|");
 
-  // Upstox master versions can label ordinary shares as EQ or EQUITY.
-  // If the type column is absent/blank, the exchange segment and instrument
-  // key still identify an equity-segment row. Explicit non-equity types
-  // (ETF, FUTSTK, OPTSTK, bonds, etc.) remain excluded.
-  const acceptedTypes = new Set(["EQ", "EQUITY", "STOCK", "SHARE", "SHARES"]);
-  const knownNonEquityType = t.length > 0 && !acceptedTypes.has(t);
+  // NSE cash equities normally use EQ. BSE cash-equity rows can use
+  // exchange series codes such as A, B, T, X, XT and Z. Those are still
+  // ordinary BSE equity shares; rejecting every value other than EQ would
+  // silently remove BSE stocks from the scanner.
+  const acceptedTypes = new Set([
+    "", "EQ", "EQUITY", "STOCK", "SHARE", "SHARES",
+    "A", "B", "T", "X", "XT", "Z", "P", "M", "F", "G", "E", "W",
+  ]);
+  const knownNonEquityType = !acceptedTypes.has(t);
 
   return validSegment && validKey && !knownNonEquityType;
 }
